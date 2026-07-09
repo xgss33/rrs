@@ -75,8 +75,12 @@ Room::TickResult Room::Tick()
 void Room::InitializeFood()
 {
     foods_.reserve(kFoodCount);
-    while (foods_.size() < kFoodCount) {
-        foods_.push_back(SpawnFood());
+    for (std::size_t food_index = 0; food_index < kFoodCount; ++food_index) {
+        foods_.push_back(FoodEntity{
+            .food_id = FoodId{food_index + 1},
+            .position = RandomPosition(kFoodRadius),
+            .radius = kFoodRadius,
+        });
     }
 }
 
@@ -217,7 +221,7 @@ void Room::ResolveFoodCollisions()
             }
 
             player.radius = std::sqrt(player.radius * player.radius + food.radius * food.radius * kFoodGrowthRatio);
-            food = SpawnFood();
+            food.position = RandomPosition(kFoodRadius);
         }
     }
 }
@@ -328,15 +332,6 @@ Vector2 Room::FindRespawnPosition()
     }
 
     return best_position;
-}
-
-FoodEntity Room::SpawnFood()
-{
-    return FoodEntity{
-        .food_id = FoodId{next_food_id_++},
-        .position = RandomPosition(kFoodRadius),
-        .radius = kFoodRadius,
-    };
 }
 
 RoomSnapshot Room::BuildSnapshot() const

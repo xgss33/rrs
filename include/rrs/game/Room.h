@@ -78,7 +78,6 @@ private:
     [[nodiscard]] float CalcSpeed(float radius) const;
     [[nodiscard]] Vector2 RandomPosition(float radius);
     [[nodiscard]] Vector2 FindRespawnPosition();
-    [[nodiscard]] FoodEntity SpawnFood();
     [[nodiscard]] RoomSnapshot BuildSnapshot() const;
     [[nodiscard]] PlayerEntity* FindPlayer(PlayerId player_id);
     [[nodiscard]] const PlayerEntity* FindPlayer(PlayerId player_id) const;
@@ -91,7 +90,6 @@ private:
     TickSeq respawn_delay_ticks_{0};
     bool match_over_{false};
     PlayerId winner_player_id_;
-    FoodId::ValueType next_food_id_{1};
     std::mt19937 rng_;
     std::vector<PlayerEntity> players_;
     std::vector<FoodEntity> foods_;
