@@ -1,0 +1,99 @@
+#pragma once
+
+#include "rrs/base/Types.h"
+#include "rrs/net/IoSessionRouter.h"
+#include "rrs/runtime/IoToWorkerMessage.h"
+#include "rrs/runtime/Mailbox.h"
+#include "rrs/runtime/RuntimeChannels.h"
+#include "rrs/runtime/Session.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <deque>
+#include <map>
+#include <optional>
+#include <set>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace rrs {
+
+struct BinaryFrame;
+enum class ServerMessageType : std::uint8_t;
+
+class SessionRegistry;
+class MetricsRegistry;
+
+class IOThread {
+public:
+    IOThread(IoThreadId io_thread_id,
+             std::vector<WorkerInboxSender> worker_inboxes,
+             SessionRegistry& session_registry,
+             MetricsRegistry& metrics,
+             std::size_t outbound_queue_limit);
+    ~IOThread();
+
+    IOThread(const IOThread&) = delete;
+    IOThread& operator=(const IOThread&) = delete;
+    IOThread(IOThread&&) = delete;
+    IOThread& operator=(IOThread&&) = delete;
+
+    void Start();
+    void Stop();
+    void EnqueueAcceptedClient(int client_fd);
+
+    [[nodiscard]] IoThreadId id() const noexcept { return io_thread_id_; }
+    [[nodiscard]] int wake_event_fd() const noexcept { return wake_event_fd_; }
+    [[nodiscard]] IoInboxSender inbox_sender() noexcept { return IoInboxSender{inbox_}; }
+
+private:
+    struct ClientConnection {
+        int fd{-1};
+        std::string read_buffer;
+        std::optional<Session> session;
+        std::deque<std::string> outbound_queue;
+        std::size_t outbound_offset{0};
+        bool wants_write{false};
+    };
+
+    void Run(std::stop_token stop_token);
+    void SetClientWriteInterest(ClientConnection& client, bool enabled);
+    void DrainWakeEvent();
+    void DrainAcceptedClients();
+    void DrainInbox();
+    void FlushDirtyClients();
+    void PollSocketEvents(std::stop_token stop_token);
+    void HandleSocketEvent(int client_fd, std::uint32_t events);
+    [[nodiscard]] bool ReadClientFrames(ClientConnection& client, std::vector<BinaryFrame>& ready_frames);
+    [[nodiscard]] bool FlushClientOutbound(ClientConnection& client);
+    void CloseClient(int client_fd);
+    void HandleBinaryFrame(ClientConnection& client, const BinaryFrame& frame);
+    void HandleJoin(ClientConnection& client, PlayerId player_id);
+    void HandleReconnect(ClientConnection& client, SessionId session_id);
+    void HandleInput(ClientConnection& client, PlayerInput input);
+    void HandleLeave(ClientConnection& client);
+    void BindClientSession(ClientConnection& client, const Session& session);
+    void UnbindClientSession(ClientConnection& client);
+    void SendBinaryFrame(ClientConnection& client, ServerMessageType message_type, const std::string& payload = {});
+    void SendError(ClientConnection& client, const std::string& message);
+    [[nodiscard]] bool IsCurrentClientSession(const ClientConnection& client, const Session& session) const;
+    [[nodiscard]] WorkerId SelectWorkerForJoin(PlayerId player_id) const;
+    [[nodiscard]] bool PushToWorker(WorkerId worker_id, IoToWorkerMessage message);
+
+    IoThreadId io_thread_id_;
+    std::vector<WorkerInboxSender> worker_inboxes_;
+    IoInbox inbox_;
+    std::size_t outbound_queue_limit_;
+    SessionRegistry& session_registry_;
+    MetricsRegistry& metrics_;
+    IoSessionRouter sessions_;
+    std::set<int> dirty_clients_;
+    int epoll_fd_{-1};
+    int wake_event_fd_{-1};
+    Mailbox<int> accepted_clients_;
+    std::map<int, ClientConnection> clients_;
+    std::jthread thread_;
+};
+
+} // namespace rrs

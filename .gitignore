@@ -1,0 +1,49 @@
+# Build outputs
+build/
+cmake-build-*/
+out/
+
+# Binaries and generated build files
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+realtime_room_server
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+build.ninja
+.ninja_deps
+.ninja_log
+
+# Runtime logs and profiling outputs
+*.log
+logs/
+perf.data
+perf.data.*
+out.perf
+*.folded
+*.svg
+
+# Local tools cloned for profiling
+FlameGraph/
+
+# Local scratch/design experiments
+tmp/
+
+# IDE/editor local files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

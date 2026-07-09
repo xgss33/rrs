@@ -1,0 +1,177 @@
+#include "rrs/metrics/MetricsReporter.h"
+
+#include "rrs/log/Logger.h"
+#include "rrs/metrics/MetricsRegistry.h"
+
+#include <cstddef>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <unistd.h>
+
+namespace rrs {
+
+MetricsReporter::MetricsReporter(MetricsRegistry& metrics, std::chrono::seconds report_interval)
+    : metrics_(metrics)
+    , report_interval_(report_interval)
+{
+}
+
+MetricsReporter::~MetricsReporter()
+{
+    Stop();
+}
+
+void MetricsReporter::Start()
+{
+    thread_ = std::jthread([this](std::stop_token stop_token) {
+        Run(stop_token);
+    });
+}
+
+void MetricsReporter::Stop()
+{
+    if (thread_.joinable()) {
+        thread_.request_stop();
+        wake_condition_.notify_all();
+        thread_.join();
+    }
+}
+
+void MetricsReporter::Run(std::stop_token stop_token)
+{
+    auto previous_snapshot = metrics_.CollectAndResetWindow();
+    auto previous_cpu_sample = ReadProcessCpuSample();
+    auto previous_sample_time = std::chrono::steady_clock::now();
+
+    while (!stop_token.stop_requested()) {
+        auto lock = std::unique_lock<std::mutex>{mutex_};
+        wake_condition_.wait_for(lock, stop_token, report_interval_, [] {
+            return false;
+        });
+        lock.unlock();
+
+        if (stop_token.stop_requested()) {
+            break;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto snapshot = metrics_.CollectAndResetWindow();
+        const auto elapsed = std::chrono::duration<double>(now - previous_sample_time).count();
+        const auto bytes_in_per_sec = elapsed > 0.0
+            ? static_cast<std::uint64_t>((snapshot.net_bytes_in_total - previous_snapshot.net_bytes_in_total) / elapsed)
+            : 0;
+        const auto bytes_out_per_sec = elapsed > 0.0
+            ? static_cast<std::uint64_t>((snapshot.net_bytes_out_total - previous_snapshot.net_bytes_out_total) / elapsed)
+            : 0;
+
+        const auto current_cpu_sample = ReadProcessCpuSample();
+        const auto cpu_percent = previous_cpu_sample && current_cpu_sample
+            ? CalculateCpuPercent(*previous_cpu_sample, *current_cpu_sample)
+            : 0.0;
+        const auto rss_bytes = ReadProcessRssBytes();
+
+        Logger::Metrics(
+            "[Metrics] rrs_net_connections_current={} rrs_net_bytes_in_per_sec={} rrs_net_bytes_out_per_sec={} "
+            "rrs_process_cpu_percent={:.2f} rrs_process_memory_rss_bytes={} "
+            "rrs_worker_tick_cost_us_last={} rrs_worker_tick_cost_us_max_5s={}",
+            snapshot.net_connections_current,
+            bytes_in_per_sec,
+            bytes_out_per_sec,
+            cpu_percent,
+            rss_bytes,
+            FormatWorkerValues(snapshot.worker_tick_metrics, false),
+            FormatWorkerValues(snapshot.worker_tick_metrics, true));
+
+        previous_snapshot = snapshot;
+        previous_cpu_sample = current_cpu_sample;
+        previous_sample_time = now;
+    }
+}
+
+std::optional<MetricsReporter::ProcessCpuSample> MetricsReporter::ReadProcessCpuSample()
+{
+    auto stat_file = std::ifstream{"/proc/self/stat"};
+    auto line = std::string{};
+    if (!std::getline(stat_file, line)) {
+        return std::nullopt;
+    }
+
+    const auto command_end = line.rfind(')');
+    if (command_end == std::string::npos || command_end + 2 >= line.size()) {
+        return std::nullopt;
+    }
+
+    auto fields = std::vector<std::string>{};
+    auto stream = std::istringstream{line.substr(command_end + 2)};
+    auto field = std::string{};
+    while (stream >> field) {
+        fields.push_back(field);
+    }
+
+    constexpr std::size_t kUtimeIndex = 11;
+    constexpr std::size_t kStimeIndex = 12;
+    if (fields.size() <= kStimeIndex) {
+        return std::nullopt;
+    }
+
+    try {
+        const auto user_ticks = std::stoull(fields[kUtimeIndex]);
+        const auto system_ticks = std::stoull(fields[kStimeIndex]);
+        return ProcessCpuSample{
+            .sampled_at = std::chrono::steady_clock::now(),
+            .cpu_time_ticks = user_ticks + system_ticks,
+        };
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::uint64_t MetricsReporter::ReadProcessRssBytes()
+{
+    auto statm_file = std::ifstream{"/proc/self/statm"};
+    std::uint64_t total_pages = 0;
+    std::uint64_t resident_pages = 0;
+    statm_file >> total_pages >> resident_pages;
+
+    const auto page_size = ::sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) {
+        return 0;
+    }
+
+    return resident_pages * static_cast<std::uint64_t>(page_size);
+}
+
+double MetricsReporter::CalculateCpuPercent(const ProcessCpuSample& previous, const ProcessCpuSample& current)
+{
+    const auto ticks_per_second = ::sysconf(_SC_CLK_TCK);
+    if (ticks_per_second <= 0 || current.cpu_time_ticks < previous.cpu_time_ticks) {
+        return 0.0;
+    }
+
+    const auto elapsed_seconds = std::chrono::duration<double>(current.sampled_at - previous.sampled_at).count();
+    if (elapsed_seconds <= 0.0) {
+        return 0.0;
+    }
+
+    const auto process_seconds = static_cast<double>(current.cpu_time_ticks - previous.cpu_time_ticks)
+        / static_cast<double>(ticks_per_second);
+    return process_seconds / elapsed_seconds * 100.0;
+}
+
+std::string MetricsReporter::FormatWorkerValues(const std::vector<WorkerTickMetrics>& metrics, bool use_max)
+{
+    auto output = std::string{};
+    for (const auto& metric : metrics) {
+        if (!output.empty()) {
+            output.push_back(',');
+        }
+        output += std::to_string(metric.worker_id.value());
+        output.push_back(':');
+        output += std::to_string(use_max ? metric.tick_cost_us_max_5s : metric.tick_cost_us_last);
+    }
+    return output;
+}
+
+} // namespace rrs
