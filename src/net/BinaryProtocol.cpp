@@ -183,7 +183,7 @@ std::string EncodeErrorPayload(const std::string& message)
 std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot)
 {
     std::string output;
-    output.reserve(32 + snapshot.players.size() * 21 + snapshot.foods.size() * 24);
+    output.reserve(32 + snapshot.players.size() * 21 + snapshot.foods.size() * 16);
     AppendU64(output, snapshot.room_id.value());
     AppendU64(output, snapshot.tick_seq);
     AppendU16(output, static_cast<std::uint16_t>(snapshot.players.size()));
@@ -200,7 +200,6 @@ std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot)
         AppendU64(output, food.food_id.value());
         AppendF32(output, food.position.x);
         AppendF32(output, food.position.y);
-        AppendF32(output, food.radius);
     }
 
     AppendU8(output, snapshot.match_over ? 1 : 0);

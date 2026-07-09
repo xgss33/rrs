@@ -67,9 +67,82 @@ Room::TickResult Room::Tick()
         UpdateMatchState();
     }
 
-    result.snapshot = BuildSnapshot();
+    result.broadcast_snapshot = BuildDeltaSnapshot();
+    if (std::any_of(result.events.begin(), result.events.end(), [](const Event& event) {
+            return event.type == EventType::kJoinAccepted || event.type == EventType::kReconnectAccepted;
+        })) {
+        result.full_snapshot = BuildFullSnapshot();
+    }
+
     next_tick_time_ += tick_interval_;
     return result;
+}
+
+RoomSnapshot Room::BuildFullSnapshot() const
+{
+    RoomSnapshot snapshot{
+        .room_id = room_id_,
+        .tick_seq = tick_seq_,
+        .players = {},
+        .foods = {},
+        .match_over = match_over_,
+        .winner_player_id = winner_player_id_,
+    };
+    snapshot.players.reserve(players_.size());
+    snapshot.foods.reserve(foods_.size());
+
+    for (const auto& player : players_) {
+        snapshot.players.push_back(PlayerStateSnapshot{
+            .player_id = player.player_id,
+            .position = player.position,
+            .radius = player.radius,
+            .alive = IsAlive(player),
+        });
+    }
+
+    for (const auto& food : foods_) {
+        snapshot.foods.push_back(FoodStateSnapshot{
+            .food_id = food.food_id,
+            .position = food.position,
+        });
+    }
+
+    return snapshot;
+}
+
+RoomSnapshot Room::BuildDeltaSnapshot()
+{
+    RoomSnapshot snapshot{
+        .room_id = room_id_,
+        .tick_seq = tick_seq_,
+        .players = {},
+        .foods = {},
+        .match_over = match_over_,
+        .winner_player_id = winner_player_id_,
+    };
+    snapshot.players.reserve(players_.size());
+    snapshot.foods.reserve(dirty_food_ids_.size());
+
+    for (const auto& player : players_) {
+        snapshot.players.push_back(PlayerStateSnapshot{
+            .player_id = player.player_id,
+            .position = player.position,
+            .radius = player.radius,
+            .alive = IsAlive(player),
+        });
+    }
+
+    for (const auto& food_id : dirty_food_ids_) {
+        const auto food_index = static_cast<std::size_t>(food_id.value() - 1);
+        const auto& food = foods_[food_index];
+        snapshot.foods.push_back(FoodStateSnapshot{
+            .food_id = food.food_id,
+            .position = food.position,
+        });
+    }
+
+    dirty_food_ids_.clear();
+    return snapshot;
 }
 
 void Room::InitializeFood()
@@ -177,20 +250,6 @@ void Room::LeavePlayer(const Session& session, TickResult& result)
     });
 }
 
-void Room::RespawnDuePlayers()
-{
-    for (auto& player : players_) {
-        if (player.respawn_tick == 0 || player.respawn_tick > tick_seq_) {
-            continue;
-        }
-
-        player.position = FindRespawnPosition();
-        player.input_direction = {};
-        player.radius = kInitialPlayerRadius;
-        player.respawn_tick = 0;
-    }
-}
-
 void Room::MovePlayers()
 {
     const auto delta_seconds = static_cast<float>(tick_interval_.count()) / 1'000'000'000.0F;
@@ -222,6 +281,9 @@ void Room::ResolveFoodCollisions()
 
             player.radius = std::sqrt(player.radius * player.radius + food.radius * food.radius * kFoodGrowthRatio);
             food.position = RandomPosition(kFoodRadius);
+            if (std::find(dirty_food_ids_.begin(), dirty_food_ids_.end(), food.food_id) == dirty_food_ids_.end()) {
+                dirty_food_ids_.push_back(food.food_id);
+            }
         }
     }
 }
@@ -262,6 +324,20 @@ void Room::TryEatPlayer(PlayerEntity& attacker, PlayerEntity& victim)
     victim.radius = kInitialPlayerRadius;
     victim.input_direction = {};
     victim.respawn_tick = tick_seq_ + respawn_delay_ticks_;
+}
+
+void Room::RespawnDuePlayers()
+{
+    for (auto& player : players_) {
+        if (player.respawn_tick == 0 || player.respawn_tick > tick_seq_) {
+            continue;
+        }
+
+        player.position = FindRespawnPosition();
+        player.input_direction = {};
+        player.radius = kInitialPlayerRadius;
+        player.respawn_tick = 0;
+    }
 }
 
 void Room::UpdateMatchState()
@@ -332,11 +408,6 @@ Vector2 Room::FindRespawnPosition()
     }
 
     return best_position;
-}
-
-RoomSnapshot Room::BuildSnapshot() const
-{
-    return RoomSnapshot::FromRoomState(room_id_, tick_seq_, players_, foods_, match_over_, winner_player_id_);
 }
 
 PlayerEntity* Room::FindPlayer(PlayerId player_id)

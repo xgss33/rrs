@@ -10,6 +10,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -52,7 +53,8 @@ public:
     };
 
     struct TickResult {
-        RoomSnapshot snapshot;
+        RoomSnapshot broadcast_snapshot;
+        std::optional<RoomSnapshot> full_snapshot;
         std::vector<Event> events;
     };
 
@@ -60,6 +62,9 @@ public:
     [[nodiscard]] TickResult Tick();
 
 private:
+    [[nodiscard]] RoomSnapshot BuildFullSnapshot() const;
+    [[nodiscard]] RoomSnapshot BuildDeltaSnapshot();
+
     void InitializeFood();
     [[nodiscard]] std::vector<Command> TakeCommandsForTick(Clock::time_point tick_start);
     void ProcessCommands(const std::vector<Command>& commands, TickResult& result);
@@ -68,17 +73,16 @@ private:
     void ApplyPlayerInput(const Session& session, const PlayerInput& input);
     void LeavePlayer(const Session& session, TickResult& result);
 
-    void RespawnDuePlayers();
     void MovePlayers();
     void ResolveFoodCollisions();
     void ResolvePlayerCollisions();
     void TryEatPlayer(PlayerEntity& attacker, PlayerEntity& victim);
+    void RespawnDuePlayers();
     void UpdateMatchState();
 
     [[nodiscard]] float CalcSpeed(float radius) const;
     [[nodiscard]] Vector2 RandomPosition(float radius);
     [[nodiscard]] Vector2 FindRespawnPosition();
-    [[nodiscard]] RoomSnapshot BuildSnapshot() const;
     [[nodiscard]] PlayerEntity* FindPlayer(PlayerId player_id);
     [[nodiscard]] const PlayerEntity* FindPlayer(PlayerId player_id) const;
 
@@ -93,6 +97,7 @@ private:
     std::mt19937 rng_;
     std::vector<PlayerEntity> players_;
     std::vector<FoodEntity> foods_;
+    std::vector<FoodId> dirty_food_ids_;
     std::vector<Command> pending_commands_;
 };
 

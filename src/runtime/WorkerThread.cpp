@@ -218,12 +218,13 @@ void WorkerThread::TickDueRooms(Clock::time_point now)
 void WorkerThread::HandleRoomTickResult(const Room& room, const Room::TickResult& result)
 {
     const auto room_id = room.id();
-    const auto snapshot_payload = EncodeSnapshotPayload(result.snapshot);
+    const auto snapshot_payload = EncodeSnapshotPayload(result.broadcast_snapshot);
+    const auto full_snapshot_payload = result.full_snapshot.has_value() ? EncodeSnapshotPayload(*result.full_snapshot) : std::string{};
     auto excluded_sessions = std::vector<SessionId>{};
     excluded_sessions.reserve(result.events.size());
 
     for (const auto& event : result.events) {
-        HandleRoomEvent(room_id, snapshot_payload, event, excluded_sessions);
+        HandleRoomEvent(room_id, full_snapshot_payload, event, excluded_sessions);
     }
 
     PublishSnapshot(room_id, snapshot_payload, excluded_sessions);

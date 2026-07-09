@@ -20,7 +20,8 @@ Current scope:
 - Minimal TCP accept path and binary protocol
 - Worker to IO snapshot path with bounded per-client socket queue
 - Continuous server process with signal-based shutdown
-- Gameplay pressure profile: 16 players per room, 1024 food entities per room, 30Hz full snapshots
+- Gameplay pressure profile: 16 players per room, 1024 food entities per room, 30Hz snapshots
+- Snapshot food sync uses fixed food ids: JOIN/RECONNECT sends all foods, normal tick snapshots send changed foods only
 
 Source layout:
 

@@ -31,7 +31,6 @@ add_executable(realtime_room_server
     src/net/IoSessionRouter.cpp
     src/net/IOThread.cpp
     src/runtime/SessionRegistry.cpp
-    src/game/RoomSnapshot.cpp
     src/runtime/WorkerRoomRegistry.cpp
     src/runtime/WorkerThread.cpp
 )
