@@ -2,9 +2,11 @@
 
 #include "rrs/game/RoomSnapshot.h"
 
-#include <bit>
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace rrs {
 
@@ -13,6 +15,11 @@ namespace {
 constexpr std::size_t kLengthFieldSize = 4;
 constexpr std::size_t kMessageTypeSize = 1;
 constexpr std::uint32_t kMaxFrameLength = 64 * 1024;
+constexpr float kEncodedPositionMin = -1000.0F;
+constexpr float kEncodedPositionMax = 1000.0F;
+constexpr float kEncodedRadiusMin = 0.0F;
+constexpr float kEncodedRadiusMax = 1024.0F;
+constexpr std::uint8_t kPlayerAliveFlag = 1U << 0U;
 
 void AppendU8(std::string& output, std::uint8_t value)
 {
@@ -23,6 +30,11 @@ void AppendU16(std::string& output, std::uint16_t value)
 {
     output.push_back(static_cast<char>((value >> 8U) & 0xFFU));
     output.push_back(static_cast<char>(value & 0xFFU));
+}
+
+void AppendI16(std::string& output, std::int16_t value)
+{
+    AppendU16(output, static_cast<std::uint16_t>(value));
 }
 
 void AppendU32(std::string& output, std::uint32_t value)
@@ -40,9 +52,20 @@ void AppendU64(std::string& output, std::uint64_t value)
     }
 }
 
-void AppendF32(std::string& output, float value)
+std::int16_t EncodePosition(float value)
 {
-    AppendU32(output, std::bit_cast<std::uint32_t>(value));
+    const auto clamped = std::clamp(value, kEncodedPositionMin, kEncodedPositionMax);
+    const auto normalized = (clamped - kEncodedPositionMin) / (kEncodedPositionMax - kEncodedPositionMin);
+    const auto encoded = std::lround(normalized * static_cast<float>(std::numeric_limits<std::uint16_t>::max()))
+        + static_cast<long>(std::numeric_limits<std::int16_t>::min());
+    return static_cast<std::int16_t>(encoded);
+}
+
+std::uint16_t EncodeRadius(float value)
+{
+    const auto clamped = std::clamp(value, kEncodedRadiusMin, kEncodedRadiusMax);
+    const auto normalized = (clamped - kEncodedRadiusMin) / (kEncodedRadiusMax - kEncodedRadiusMin);
+    return static_cast<std::uint16_t>(std::lround(normalized * static_cast<float>(std::numeric_limits<std::uint16_t>::max())));
 }
 
 std::uint32_t ReadU32At(const std::string& input, std::size_t offset)
@@ -183,26 +206,24 @@ std::string EncodeErrorPayload(const std::string& message)
 std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot)
 {
     std::string output;
-    output.reserve(32 + snapshot.players.size() * 21 + snapshot.foods.size() * 16);
-    AppendU64(output, snapshot.room_id.value());
-    AppendU64(output, snapshot.tick_seq);
-    AppendU16(output, static_cast<std::uint16_t>(snapshot.players.size()));
+    output.reserve(13 + snapshot.players.size() * 15 + snapshot.foods.size() * 6);
+    AppendU16(output, static_cast<std::uint16_t>(snapshot.tick_seq));
+    AppendU8(output, static_cast<std::uint8_t>(snapshot.players.size()));
     for (const auto& player : snapshot.players) {
         AppendU64(output, player.player_id.value());
-        AppendF32(output, player.position.x);
-        AppendF32(output, player.position.y);
-        AppendF32(output, player.radius);
-        AppendU8(output, player.alive ? 1 : 0);
+        AppendI16(output, EncodePosition(player.position.x));
+        AppendI16(output, EncodePosition(player.position.y));
+        AppendU16(output, EncodeRadius(player.radius));
+        AppendU8(output, player.alive ? kPlayerAliveFlag : 0);
     }
 
     AppendU16(output, static_cast<std::uint16_t>(snapshot.foods.size()));
     for (const auto& food : snapshot.foods) {
-        AppendU64(output, food.food_id.value());
-        AppendF32(output, food.position.x);
-        AppendF32(output, food.position.y);
+        AppendU16(output, static_cast<std::uint16_t>(food.food_id.value()));
+        AppendI16(output, EncodePosition(food.position.x));
+        AppendI16(output, EncodePosition(food.position.y));
     }
 
-    AppendU8(output, snapshot.match_over ? 1 : 0);
     AppendU64(output, snapshot.winner_player_id.value());
     return output;
 }

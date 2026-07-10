@@ -81,12 +81,10 @@ Room::TickResult Room::Tick()
 RoomSnapshot Room::BuildFullSnapshot() const
 {
     RoomSnapshot snapshot{
-        .room_id = room_id_,
         .tick_seq = tick_seq_,
         .players = {},
         .foods = {},
-        .match_over = match_over_,
-        .winner_player_id = winner_player_id_,
+        .winner_player_id = match_over_ ? winner_player_id_ : PlayerId{},
     };
     snapshot.players.reserve(players_.size());
     snapshot.foods.reserve(foods_.size());
@@ -113,12 +111,10 @@ RoomSnapshot Room::BuildFullSnapshot() const
 RoomSnapshot Room::BuildDeltaSnapshot()
 {
     RoomSnapshot snapshot{
-        .room_id = room_id_,
         .tick_seq = tick_seq_,
         .players = {},
         .foods = {},
-        .match_over = match_over_,
-        .winner_player_id = winner_player_id_,
+        .winner_player_id = match_over_ ? winner_player_id_ : PlayerId{},
     };
     snapshot.players.reserve(players_.size());
     snapshot.foods.reserve(dirty_food_ids_.size());

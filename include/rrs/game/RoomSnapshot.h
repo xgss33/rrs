@@ -20,11 +20,9 @@ struct FoodStateSnapshot {
 };
 
 struct RoomSnapshot {
-    RoomId room_id;
     TickSeq tick_seq{0};
     std::vector<PlayerStateSnapshot> players;
     std::vector<FoodStateSnapshot> foods;
-    bool match_over{false};
     PlayerId winner_player_id;
 };
 
