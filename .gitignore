@@ -30,6 +30,11 @@ perf.data.*
 out.perf
 *.folded
 *.svg
+!perf/
+!perf/flamegraphs/
+!perf/flamegraphs/*.svg
+!perf/analysis/
+!perf/analysis/*.txt
 
 # Local tools cloned for profiling
 FlameGraph/

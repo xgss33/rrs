@@ -1,0 +1,14 @@
+采集于CPU 80%
+
+
+_send 25.28
+ResolveFoodCollisions 15
+epoll_wait 9.92
+recv 9.83
+TickDueRooms 4.25
+malloc 2.14
+operator new 0.89
+DraininBOx 1.74
+....
+
+还有RBtree的调用, 项目里面用的map需要优化成unordered_map, 还有各种数据结构调整, 虽然食物碰撞用了很多cpu, 但是瓶颈还是发送太多了
