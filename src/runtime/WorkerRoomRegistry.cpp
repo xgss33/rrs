@@ -105,6 +105,7 @@ void WorkerRoomRegistry::ActivateSession(SessionId session_id)
     }
 
     binding->active = true;
+    active_session_ids_by_room_[binding->room_id].push_back(session_id);
 }
 
 void WorkerRoomRegistry::UpdateSession(const Session& session)
@@ -124,6 +125,9 @@ void WorkerRoomRegistry::RemoveSession(SessionId session_id)
     }
 
     const auto room_id = binding->room_id;
+    if (binding->active) {
+        RemoveActiveSessionFromRoom(room_id, session_id);
+    }
     session_bindings_.erase(session_id);
 
     auto count_iterator = session_count_by_room_.find(room_id);
@@ -168,6 +172,7 @@ void WorkerRoomRegistry::HandleRoomAfterLeave(RoomId room_id)
     }
 
     RemoveOpenRoom(room_id);
+    active_session_ids_by_room_.erase(room_id);
     session_count_by_room_.erase(room_id);
     rooms_.erase(room_id);
     Logger::Info("[Worker] delete empty room worker={} room={}", worker_id_.value(), room_id.value());
@@ -188,6 +193,19 @@ Room& WorkerRoomRegistry::CreateRoom()
 void WorkerRoomRegistry::RemoveOpenRoom(RoomId room_id)
 {
     std::erase(open_room_ids_, room_id);
+}
+
+void WorkerRoomRegistry::RemoveActiveSessionFromRoom(RoomId room_id, SessionId session_id)
+{
+    auto iterator = active_session_ids_by_room_.find(room_id);
+    if (iterator == active_session_ids_by_room_.end()) {
+        return;
+    }
+
+    std::erase(iterator->second, session_id);
+    if (iterator->second.empty()) {
+        active_session_ids_by_room_.erase(iterator);
+    }
 }
 
 std::size_t WorkerRoomRegistry::SessionCountForRoom(RoomId room_id) const

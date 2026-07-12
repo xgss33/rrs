@@ -10,12 +10,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <map>
 #include <memory>
 #include <optional>
-#include <set>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace rrs {
@@ -58,6 +57,7 @@ private:
         std::string read_buffer;
         std::optional<Session> session;
         std::deque<PendingWrite> outbound_queue;
+        bool dirty{false};
         bool wants_write{false};
     };
 
@@ -92,11 +92,11 @@ private:
     SessionRegistry& session_registry_;
     MetricsRegistry& metrics_;
     IoSessionRouter sessions_;
-    std::set<int> dirty_clients_;
+    std::vector<int> dirty_clients_;
     int epoll_fd_{-1};
     int wake_event_fd_{-1};
     Mailbox<int> accepted_clients_;
-    std::map<int, ClientConnection> clients_;
+    std::unordered_map<int, ClientConnection> clients_;
     std::jthread thread_;
 };
 

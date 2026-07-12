@@ -13,8 +13,6 @@ struct AppConfig {
     std::uint32_t room_capacity{16};
     std::uint32_t max_catch_up_ticks{2};
     std::uint32_t outbound_queue_limit{16};
-
-    [[nodiscard]] static AppConfig LoadDefault();
 };
 
 } // namespace rrs

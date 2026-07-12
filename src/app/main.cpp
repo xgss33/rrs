@@ -89,7 +89,7 @@ int main(int argc, char* argv[])
         std::signal(SIGTERM, HandleStopSignal);
 
         const auto startup_options = ParseStartupOptions(argc, argv);
-        const auto config = rrs::AppConfig::LoadDefault();
+        const auto config = rrs::AppConfig{};
         const auto worker_thread_count = std::max(1U, config.worker_thread_count);
         const auto tick_interval = MakeTickInterval(config.target_tick_hz);
 

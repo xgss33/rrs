@@ -204,6 +204,7 @@ void IOThread::DrainAcceptedClients()
                                       .read_buffer = {},
                                       .session = std::nullopt,
                                       .outbound_queue = {},
+                                      .dirty = false,
                                       .wants_write = false,
                                   });
         metrics_.OnConnectionOpened();
@@ -234,15 +235,16 @@ void IOThread::DrainInbox()
 
 void IOThread::FlushDirtyClients()
 {
-    while (!dirty_clients_.empty()) {
-        const auto client_fd = *dirty_clients_.begin();
-        dirty_clients_.erase(dirty_clients_.begin());
+    auto dirty_clients = std::move(dirty_clients_);
+    dirty_clients_.clear();
 
+    for (const auto client_fd : dirty_clients) {
         auto iterator = clients_.find(client_fd);
         if (iterator == clients_.end()) {
             continue;
         }
 
+        iterator->second.dirty = false;
         if (!FlushClientOutbound(iterator->second)) {
             CloseClient(client_fd);
         }
@@ -364,7 +366,7 @@ void IOThread::CloseClient(int client_fd)
         sessions_.Unbind(client_fd, iterator->second.session->session_id);
     }
 
-    dirty_clients_.erase(client_fd);
+    iterator->second.dirty = false;
     if (epoll_fd_ >= 0) {
         ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client_fd, nullptr);
     }
@@ -530,7 +532,10 @@ void IOThread::QueueEncodedFrame(ClientConnection& client, std::shared_ptr<const
         .encoded_frame = std::move(encoded_frame),
         .offset = 0,
     });
-    dirty_clients_.insert(client.fd);
+    if (!client.dirty) {
+        client.dirty = true;
+        dirty_clients_.push_back(client.fd);
+    }
 }
 
 void IOThread::QueueErrorFrame(ClientConnection& client, const std::string& message)

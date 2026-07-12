@@ -19,7 +19,6 @@ FetchContent_MakeAvailable(spdlog)
 
 add_executable(realtime_room_server
     src/app/main.cpp
-    src/app/AppConfig.cpp
     src/game/Room.cpp
     src/log/Logger.cpp
     src/metrics/MetricsRegistry.cpp

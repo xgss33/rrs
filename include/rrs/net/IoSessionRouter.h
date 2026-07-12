@@ -3,8 +3,8 @@
 #include "rrs/base/Types.h"
 
 #include <cstddef>
-#include <map>
 #include <optional>
+#include <unordered_map>
 
 namespace rrs {
 
@@ -17,7 +17,7 @@ public:
     [[nodiscard]] std::size_t size() const noexcept { return fd_by_session_.size(); }
 
 private:
-    std::map<SessionId, int> fd_by_session_;
+    std::unordered_map<SessionId, int> fd_by_session_;
 };
 
 } // namespace rrs

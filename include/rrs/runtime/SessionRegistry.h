@@ -3,9 +3,9 @@
 #include "rrs/base/Types.h"
 #include "rrs/runtime/Session.h"
 
-#include <map>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
 
 namespace rrs {
 
@@ -17,7 +17,7 @@ public:
 
 private:
     std::mutex mutex_;
-    std::map<SessionId, Session> sessions_by_id_;
+    std::unordered_map<SessionId, Session> sessions_by_id_;
     SessionId::ValueType next_session_id_{1};
 };
 

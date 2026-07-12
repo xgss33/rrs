@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <unordered_map>
 #include <vector>
 
 namespace rrs {
@@ -35,9 +36,15 @@ public:
     template <typename HandleSession>
     void ForEachActiveSessionInRoom(RoomId room_id, HandleSession handle_session) const
     {
-        for (const auto& [_, binding] : session_bindings_) {
-            if (binding.room_id == room_id && binding.active) {
-                handle_session(MakeSession(binding));
+        const auto session_ids_iterator = active_session_ids_by_room_.find(room_id);
+        if (session_ids_iterator == active_session_ids_by_room_.end()) {
+            return;
+        }
+
+        for (const auto session_id : session_ids_iterator->second) {
+            const auto* binding = FindBinding(session_id);
+            if (binding != nullptr && binding->active && binding->room_id == room_id) {
+                handle_session(MakeSession(*binding));
             }
         }
     }
@@ -86,6 +93,7 @@ private:
     [[nodiscard]] Room& CreateRoom();
     [[nodiscard]] WorkerSessionBinding* FindMutableBinding(SessionId session_id);
     [[nodiscard]] std::size_t SessionCountForRoom(RoomId room_id) const;
+    void RemoveActiveSessionFromRoom(RoomId room_id, SessionId session_id);
     void RemoveOpenRoom(RoomId room_id);
 
     WorkerId worker_id_;
@@ -93,8 +101,9 @@ private:
     std::size_t room_capacity_;
     std::map<RoomId, Room> rooms_;
     std::vector<RoomId> open_room_ids_;
-    std::map<SessionId, WorkerSessionBinding> session_bindings_;
-    std::map<RoomId, std::size_t> session_count_by_room_;
+    std::unordered_map<SessionId, WorkerSessionBinding> session_bindings_;
+    std::unordered_map<RoomId, std::vector<SessionId>> active_session_ids_by_room_;
+    std::unordered_map<RoomId, std::size_t> session_count_by_room_;
     RoomId::ValueType next_local_room_id_{1};
 };
 

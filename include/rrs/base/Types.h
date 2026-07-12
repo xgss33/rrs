@@ -1,7 +1,9 @@
 #pragma once
 
-#include <cstdint>
 #include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 
 namespace rrs {
 
@@ -39,3 +41,15 @@ using TickSeq = std::uint64_t;
 using Generation = std::uint64_t;
 
 } // namespace rrs
+
+namespace std {
+
+template <typename Tag>
+struct hash<rrs::StrongId<Tag>> {
+    [[nodiscard]] std::size_t operator()(rrs::StrongId<Tag> id) const noexcept
+    {
+        return std::hash<typename rrs::StrongId<Tag>::ValueType>{}(id.value());
+    }
+};
+
+} // namespace std
