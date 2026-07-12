@@ -1,11 +1,11 @@
 #pragma once
 
 #include "rrs/base/Types.h"
-#include "rrs/runtime/IoToWorkerMessage.h"
-#include "rrs/game/FoodEntity.h"
+#include "rrs/game/FoodSpatialIndex.h"
 #include "rrs/game/MathTypes.h"
 #include "rrs/game/PlayerEntity.h"
 #include "rrs/game/RoomSnapshot.h"
+#include "rrs/runtime/IoToWorkerMessage.h"
 #include "rrs/runtime/Session.h"
 
 #include <chrono>
@@ -62,10 +62,8 @@ public:
     [[nodiscard]] TickResult Tick();
 
 private:
-    [[nodiscard]] RoomSnapshot BuildFullSnapshot() const;
-    [[nodiscard]] RoomSnapshot BuildDeltaSnapshot();
-
     void InitializeFood();
+
     [[nodiscard]] std::vector<Command> TakeCommandsForTick(Clock::time_point tick_start);
     void ProcessCommands(const std::vector<Command>& commands, TickResult& result);
     void JoinPlayer(const Session& session, TickResult& result);
@@ -80,8 +78,10 @@ private:
     void RespawnDuePlayers();
     void UpdateMatchState();
 
+    [[nodiscard]] RoomSnapshot BuildDeltaSnapshot();
+    [[nodiscard]] RoomSnapshot BuildFullSnapshot() const;
+
     [[nodiscard]] float CalcSpeed(float radius) const;
-    [[nodiscard]] Vector2 RandomPosition(float radius);
     [[nodiscard]] Vector2 FindRespawnPosition();
     [[nodiscard]] PlayerEntity* FindPlayer(PlayerId player_id);
     [[nodiscard]] const PlayerEntity* FindPlayer(PlayerId player_id) const;
@@ -96,8 +96,7 @@ private:
     PlayerId winner_player_id_;
     std::mt19937 rng_;
     std::vector<PlayerEntity> players_;
-    std::vector<FoodEntity> foods_;
-    std::vector<FoodId> dirty_food_ids_;
+    FoodSpatialIndex foods_;
     std::vector<Command> pending_commands_;
 };
 

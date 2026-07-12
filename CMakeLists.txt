@@ -19,6 +19,7 @@ FetchContent_MakeAvailable(spdlog)
 
 add_executable(realtime_room_server
     src/app/main.cpp
+    src/game/FoodSpatialIndex.cpp
     src/game/Room.cpp
     src/log/Logger.cpp
     src/metrics/MetricsRegistry.cpp

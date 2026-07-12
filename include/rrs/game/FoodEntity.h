@@ -8,7 +8,6 @@ namespace rrs {
 struct FoodEntity {
     FoodId food_id;
     Vector2 position;
-    float radius{4.0F};
 };
 
 } // namespace rrs
