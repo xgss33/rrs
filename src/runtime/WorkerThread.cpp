@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
 #include <thread>
 #include <utility>
 
@@ -219,6 +220,8 @@ void WorkerThread::HandleRoomTickResult(const Room& room, const Room::TickResult
 {
     const auto room_id = room.id();
     const auto snapshot_payload = EncodeSnapshotPayload(result.broadcast_snapshot);
+    auto snapshot_frame_bytes = EncodeFrame(ServerMessageType::kSnapshot, snapshot_payload);
+    const auto encoded_snapshot_frame = std::make_shared<const std::string>(std::move(snapshot_frame_bytes));
     const auto full_snapshot_payload = result.full_snapshot.has_value() ? EncodeSnapshotPayload(*result.full_snapshot) : std::string{};
     auto excluded_sessions = std::vector<SessionId>{};
     excluded_sessions.reserve(result.events.size());
@@ -227,11 +230,11 @@ void WorkerThread::HandleRoomTickResult(const Room& room, const Room::TickResult
         HandleRoomEvent(room_id, full_snapshot_payload, event, excluded_sessions);
     }
 
-    PublishSnapshot(room_id, snapshot_payload, excluded_sessions);
+    PublishSnapshot(room_id, encoded_snapshot_frame, excluded_sessions);
 }
 
 void WorkerThread::HandleRoomEvent(RoomId room_id,
-                                   const std::string& snapshot_payload,
+                                   const std::string& full_snapshot_payload,
                                    const Room::Event& event,
                                    std::vector<SessionId>& excluded_sessions)
 {
@@ -239,11 +242,11 @@ void WorkerThread::HandleRoomEvent(RoomId room_id,
     case Room::EventType::kJoinAccepted:
         rooms_.ActivateSession(event.session.session_id);
         rooms_.UpdateRoomOpenState(room_id);
-        PushToIo(event.session, WorkerToIoMessage::MakeJoinOk(event.session, snapshot_payload));
+        PushToIo(event.session, WorkerToIoMessage::MakeJoinOk(event.session, full_snapshot_payload));
         excluded_sessions.push_back(event.session.session_id);
         return;
     case Room::EventType::kReconnectAccepted:
-        PushToIo(event.session, WorkerToIoMessage::MakeReconnectOk(event.session, snapshot_payload));
+        PushToIo(event.session, WorkerToIoMessage::MakeReconnectOk(event.session, full_snapshot_payload));
         excluded_sessions.push_back(event.session.session_id);
         return;
     case Room::EventType::kReconnectRejected:
@@ -259,15 +262,18 @@ void WorkerThread::HandleRoomEvent(RoomId room_id,
 }
 
 void WorkerThread::PublishSnapshot(RoomId room_id,
-                                   const std::string& snapshot_payload,
+                                   std::shared_ptr<const std::string> encoded_snapshot_frame,
                                    const std::vector<SessionId>& excluded_sessions)
 {
-    rooms_.ForEachActiveSessionInRoom(room_id, [this, &snapshot_payload, &excluded_sessions](const Session& session) {
+    rooms_.ForEachActiveSessionInRoom(room_id, [this, &encoded_snapshot_frame, &excluded_sessions](const Session& session) {
         if (ContainsSessionId(excluded_sessions, session.session_id)) {
             return;
         }
 
-        PushToIo(session, WorkerToIoMessage::MakeSnapshot(session, snapshot_payload));
+        PushToIo(session, WorkerToIoMessage{
+                              .session = session,
+                              .encoded_frame = encoded_snapshot_frame,
+                          });
     });
 }
 

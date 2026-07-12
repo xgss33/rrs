@@ -1,43 +1,42 @@
 #include "rrs/runtime/WorkerToIoMessage.h"
 #include "rrs/net/BinaryProtocol.h"
 
+#include <memory>
 #include <utility>
 
 namespace rrs {
 
-WorkerToIoMessage WorkerToIoMessage::MakeJoinOk(Session session, std::string snapshot_payload)
+WorkerToIoMessage WorkerToIoMessage::MakeJoinOk(Session session, const std::string& snapshot_payload)
 {
+    auto frame = EncodeFrame(
+        ServerMessageType::kJoinOk,
+        EncodeJoinOkPayload(session.session_id, session.generation, snapshot_payload));
+
     return WorkerToIoMessage{
         .session = session,
-        .server_message_type = ServerMessageType::kJoinOk,
-        .payload = EncodeJoinOkPayload(session.session_id, session.generation, snapshot_payload),
+        .encoded_frame = std::make_shared<const std::string>(std::move(frame)),
     };
 }
 
-WorkerToIoMessage WorkerToIoMessage::MakeReconnectOk(Session session, std::string snapshot_payload)
+WorkerToIoMessage WorkerToIoMessage::MakeReconnectOk(Session session, const std::string& snapshot_payload)
 {
+    auto frame = EncodeFrame(
+        ServerMessageType::kReconnectOk,
+        EncodeReconnectOkPayload(session.session_id, session.generation, snapshot_payload));
+
     return WorkerToIoMessage{
         .session = session,
-        .server_message_type = ServerMessageType::kReconnectOk,
-        .payload = EncodeReconnectOkPayload(session.session_id, session.generation, snapshot_payload),
+        .encoded_frame = std::make_shared<const std::string>(std::move(frame)),
     };
 }
 
-WorkerToIoMessage WorkerToIoMessage::MakeSnapshot(Session session, std::string payload)
+WorkerToIoMessage WorkerToIoMessage::MakeError(Session session, const std::string& error_message)
 {
-    return WorkerToIoMessage{
-        .session = session,
-        .server_message_type = ServerMessageType::kSnapshot,
-        .payload = std::move(payload),
-    };
-}
+    auto frame = EncodeFrame(ServerMessageType::kError, EncodeErrorPayload(error_message));
 
-WorkerToIoMessage WorkerToIoMessage::MakeError(Session session, std::string error_message)
-{
     return WorkerToIoMessage{
         .session = session,
-        .server_message_type = ServerMessageType::kError,
-        .payload = EncodeErrorPayload(error_message),
+        .encoded_frame = std::make_shared<const std::string>(std::move(frame)),
     };
 }
 

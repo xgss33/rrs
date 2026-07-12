@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <memory>
 #include <stdexcept>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
@@ -203,7 +204,6 @@ void IOThread::DrainAcceptedClients()
                                       .read_buffer = {},
                                       .session = std::nullopt,
                                       .outbound_queue = {},
-                                      .outbound_offset = 0,
                                       .wants_write = false,
                                   });
         metrics_.OnConnectionOpened();
@@ -228,7 +228,7 @@ void IOThread::DrainInbox()
             continue;
         }
 
-        SendBinaryFrame(client_iterator->second, message.server_message_type, message.payload);
+        QueueEncodedFrame(client_iterator->second, std::move(message.encoded_frame));
     }
 }
 
@@ -320,11 +320,12 @@ bool IOThread::ReadClientFrames(ClientConnection& client, std::vector<BinaryFram
 bool IOThread::FlushClientOutbound(ClientConnection& client)
 {
     while (!client.outbound_queue.empty()) {
-        auto& frame = client.outbound_queue.front();
+        auto& pending_write = client.outbound_queue.front();
+        const auto& frame = *pending_write.encoded_frame;
         const auto bytes_sent = ::send(
             client.fd,
-            frame.data() + client.outbound_offset,
-            frame.size() - client.outbound_offset,
+            frame.data() + pending_write.offset,
+            frame.size() - pending_write.offset,
             MSG_NOSIGNAL);
         if (bytes_sent < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -340,11 +341,10 @@ bool IOThread::FlushClientOutbound(ClientConnection& client)
             return true;
         }
 
-        client.outbound_offset += static_cast<std::size_t>(bytes_sent);
+        pending_write.offset += static_cast<std::size_t>(bytes_sent);
         metrics_.OnBytesWritten(static_cast<std::uint64_t>(bytes_sent));
-        if (client.outbound_offset >= frame.size()) {
+        if (pending_write.offset >= frame.size()) {
             client.outbound_queue.pop_front();
-            client.outbound_offset = 0;
         }
     }
 
@@ -379,7 +379,7 @@ void IOThread::HandleBinaryFrame(ClientConnection& client, const BinaryFrame& fr
     case ClientMessageType::kJoin: {
         const auto request = DecodeJoinRequest(frame);
         if (!request || !request->player_id.is_valid()) {
-            SendError(client, "JOIN_USAGE");
+            QueueErrorFrame(client, "JOIN_USAGE");
             return;
         }
         HandleJoin(client, request->player_id);
@@ -388,7 +388,7 @@ void IOThread::HandleBinaryFrame(ClientConnection& client, const BinaryFrame& fr
     case ClientMessageType::kReconnect: {
         const auto request = DecodeReconnectRequest(frame);
         if (!request || !request->session_id.is_valid()) {
-            SendError(client, "RECONNECT_USAGE");
+            QueueErrorFrame(client, "RECONNECT_USAGE");
             return;
         }
         HandleReconnect(client, request->session_id);
@@ -397,7 +397,7 @@ void IOThread::HandleBinaryFrame(ClientConnection& client, const BinaryFrame& fr
     case ClientMessageType::kInput: {
         const auto request = DecodeInputRequest(frame);
         if (!request) {
-            SendError(client, "INPUT_USAGE");
+            QueueErrorFrame(client, "INPUT_USAGE");
             return;
         }
         HandleInput(client, PlayerInput{
@@ -409,7 +409,7 @@ void IOThread::HandleBinaryFrame(ClientConnection& client, const BinaryFrame& fr
     case ClientMessageType::kLeave: {
         const auto request = DecodeLeaveRequest(frame);
         if (!request) {
-            SendError(client, "LEAVE_USAGE");
+            QueueErrorFrame(client, "LEAVE_USAGE");
             return;
         }
         HandleLeave(client);
@@ -417,13 +417,13 @@ void IOThread::HandleBinaryFrame(ClientConnection& client, const BinaryFrame& fr
     }
     }
 
-    SendError(client, "UNKNOWN_COMMAND");
+    QueueErrorFrame(client, "UNKNOWN_COMMAND");
 }
 
 void IOThread::HandleJoin(ClientConnection& client, PlayerId player_id)
 {
     if (client.session.has_value()) {
-        SendError(client, "ALREADY_JOINED");
+        QueueErrorFrame(client, "ALREADY_JOINED");
         return;
     }
 
@@ -434,7 +434,7 @@ void IOThread::HandleJoin(ClientConnection& client, PlayerId player_id)
     if (!PushToWorker(worker_id, IoToWorkerMessage::MakeJoin(session))) {
         session_registry_.Remove(session.session_id);
         UnbindClientSession(client);
-        SendError(client, "WORKER_QUEUE_UNAVAILABLE");
+        QueueErrorFrame(client, "WORKER_QUEUE_UNAVAILABLE");
         return;
     }
 
@@ -449,20 +449,20 @@ void IOThread::HandleJoin(ClientConnection& client, PlayerId player_id)
 void IOThread::HandleReconnect(ClientConnection& client, SessionId session_id)
 {
     if (client.session.has_value()) {
-        SendError(client, "ALREADY_JOINED");
+        QueueErrorFrame(client, "ALREADY_JOINED");
         return;
     }
 
     const auto session = session_registry_.Reconnect(session_id, io_thread_id_);
     if (!session) {
-        SendError(client, "SESSION_NOT_FOUND");
+        QueueErrorFrame(client, "SESSION_NOT_FOUND");
         return;
     }
 
     BindClientSession(client, *session);
     if (!PushToWorker(session->worker_id, IoToWorkerMessage::MakeReconnect(*session))) {
         UnbindClientSession(client);
-        SendError(client, "WORKER_QUEUE_UNAVAILABLE");
+        QueueErrorFrame(client, "WORKER_QUEUE_UNAVAILABLE");
         return;
     }
 
@@ -477,12 +477,12 @@ void IOThread::HandleReconnect(ClientConnection& client, SessionId session_id)
 void IOThread::HandleInput(ClientConnection& client, PlayerInput input)
 {
     if (!client.session) {
-        SendError(client, "NOT_JOINED");
+        QueueErrorFrame(client, "NOT_JOINED");
         return;
     }
 
     if (!PushToWorker(client.session->worker_id, IoToWorkerMessage::MakePlayerInput(*client.session, input))) {
-        SendError(client, "WORKER_QUEUE_UNAVAILABLE");
+        QueueErrorFrame(client, "WORKER_QUEUE_UNAVAILABLE");
     }
 }
 
@@ -520,20 +520,23 @@ void IOThread::UnbindClientSession(ClientConnection& client)
     client.session = std::nullopt;
 }
 
-void IOThread::SendBinaryFrame(ClientConnection& client, ServerMessageType message_type, const std::string& payload)
+void IOThread::QueueEncodedFrame(ClientConnection& client, std::shared_ptr<const std::string> encoded_frame)
 {
     if (client.outbound_queue.size() >= outbound_queue_limit_) {
         client.outbound_queue.pop_front();
-        client.outbound_offset = 0;
     }
 
-    client.outbound_queue.push_back(EncodeFrame(message_type, payload));
+    client.outbound_queue.push_back(PendingWrite{
+        .encoded_frame = std::move(encoded_frame),
+        .offset = 0,
+    });
     dirty_clients_.insert(client.fd);
 }
 
-void IOThread::SendError(ClientConnection& client, const std::string& message)
+void IOThread::QueueErrorFrame(ClientConnection& client, const std::string& message)
 {
-    SendBinaryFrame(client, ServerMessageType::kError, EncodeErrorPayload(message));
+    QueueEncodedFrame(client, std::make_shared<const std::string>(
+                                  EncodeFrame(ServerMessageType::kError, EncodeErrorPayload(message))));
 }
 
 bool IOThread::IsCurrentClientSession(const ClientConnection& client, const Session& session) const

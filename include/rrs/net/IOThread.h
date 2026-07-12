@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -20,7 +21,6 @@
 namespace rrs {
 
 struct BinaryFrame;
-enum class ServerMessageType : std::uint8_t;
 
 class SessionRegistry;
 class MetricsRegistry;
@@ -48,12 +48,16 @@ public:
     [[nodiscard]] IoInboxSender inbox_sender() noexcept { return IoInboxSender{inbox_}; }
 
 private:
+    struct PendingWrite {
+        std::shared_ptr<const std::string> encoded_frame;
+        std::size_t offset{0};
+    };
+
     struct ClientConnection {
         int fd{-1};
         std::string read_buffer;
         std::optional<Session> session;
-        std::deque<std::string> outbound_queue;
-        std::size_t outbound_offset{0};
+        std::deque<PendingWrite> outbound_queue;
         bool wants_write{false};
     };
 
@@ -75,8 +79,8 @@ private:
     void HandleLeave(ClientConnection& client);
     void BindClientSession(ClientConnection& client, const Session& session);
     void UnbindClientSession(ClientConnection& client);
-    void SendBinaryFrame(ClientConnection& client, ServerMessageType message_type, const std::string& payload = {});
-    void SendError(ClientConnection& client, const std::string& message);
+    void QueueEncodedFrame(ClientConnection& client, std::shared_ptr<const std::string> encoded_frame);
+    void QueueErrorFrame(ClientConnection& client, const std::string& message);
     [[nodiscard]] bool IsCurrentClientSession(const ClientConnection& client, const Session& session) const;
     [[nodiscard]] WorkerId SelectWorkerForJoin(PlayerId player_id) const;
     [[nodiscard]] bool PushToWorker(WorkerId worker_id, IoToWorkerMessage message);

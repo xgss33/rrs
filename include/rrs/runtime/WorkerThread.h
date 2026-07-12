@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -52,11 +53,11 @@ private:
     void TickDueRooms(Clock::time_point now);
     void HandleRoomTickResult(const Room& room, const Room::TickResult& result);
     void HandleRoomEvent(RoomId room_id,
-                         const std::string& snapshot_payload,
+                         const std::string& full_snapshot_payload,
                          const Room::Event& event,
                          std::vector<SessionId>& excluded_sessions);
     void PublishSnapshot(RoomId room_id,
-                         const std::string& snapshot_payload,
+                         std::shared_ptr<const std::string> encoded_snapshot_frame,
                          const std::vector<SessionId>& excluded_sessions);
     void PushToIo(const Session& session, WorkerToIoMessage message);
 
