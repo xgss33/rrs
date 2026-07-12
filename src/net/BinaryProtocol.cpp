@@ -1,5 +1,6 @@
 #include "rrs/net/BinaryProtocol.h"
 
+#include "rrs/game/RoomRules.h"
 #include "rrs/game/RoomSnapshot.h"
 
 #include <algorithm>
@@ -15,8 +16,8 @@ namespace {
 constexpr std::size_t kLengthFieldSize = 4;
 constexpr std::size_t kMessageTypeSize = 1;
 constexpr std::uint32_t kMaxFrameLength = 64 * 1024;
-constexpr float kEncodedPositionMin = -1000.0F;
-constexpr float kEncodedPositionMax = 1000.0F;
+constexpr float kEncodedPositionMin = -room_rules::kRoomHalfExtent;
+constexpr float kEncodedPositionMax = room_rules::kRoomHalfExtent;
 constexpr float kEncodedRadiusMin = 0.0F;
 constexpr float kEncodedRadiusMax = 1024.0F;
 constexpr std::uint8_t kPlayerAliveFlag = 1U << 0U;
