@@ -281,7 +281,7 @@ void WorkerThread::PublishSnapshot(RoomId room_id,
 void WorkerThread::PushToIo(const Session& session, WorkerToIoMessage message)
 {
     const auto io_index = static_cast<std::size_t>(session.io_thread_id.value());
-    if (io_index >= io_inboxes_.size() || !io_inboxes_[io_index].IsValid()) {
+    if (io_index >= io_inboxes_.size()) {
         Logger::Warn("[Worker] drop message session={} reason=io_inbox_not_found", session.session_id.value());
         return;
     }

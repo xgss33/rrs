@@ -117,10 +117,7 @@ void IOThread::Wake()
 
 void IOThread::EnqueueAcceptedClient(int client_fd)
 {
-    if (!accepted_clients_.Push(client_fd)) {
-        Logger::Warn("[IO] failed to enqueue accepted fd={}", client_fd);
-        ::close(client_fd);
-    }
+    accepted_clients_.Push(client_fd);
 }
 
 void IOThread::Run(std::stop_token stop_token)
@@ -347,11 +344,19 @@ bool IOThread::ReadClientFrames(ClientConnection& client, std::vector<BinaryFram
         return false;
     }
 
-    while (auto frame = TryDecodeBinaryFrame(client.read_buffer)) {
-        ready_frames.push_back(std::move(*frame));
-    }
+    while (true) {
+        auto frame = BinaryFrame{};
+        const auto decode_status = TryDecodeBinaryFrame(client.read_buffer, frame);
+        if (decode_status == BinaryFrameDecodeStatus::kIncomplete) {
+            return true;
+        }
+        if (decode_status == BinaryFrameDecodeStatus::kInvalid) {
+            Logger::Warn("[IO] invalid frame length fd={} buffered_bytes={}", client.fd, client.read_buffer.size());
+            return false;
+        }
 
-    return true;
+        ready_frames.push_back(std::move(frame));
+    }
 }
 
 bool IOThread::FlushClientOutbound(ClientConnection& client)
@@ -559,8 +564,21 @@ void IOThread::UnbindClientSession(ClientConnection& client)
 
 void IOThread::QueueEncodedFrame(ClientConnection& client, std::shared_ptr<const std::string> encoded_frame)
 {
+    if (outbound_queue_limit_ == 0) {
+        return;
+    }
+
     if (client.outbound_queue.size() >= outbound_queue_limit_) {
-        client.outbound_queue.pop_front();
+        auto drop_iterator = client.outbound_queue.begin();
+        if (drop_iterator->offset > 0) {
+            ++drop_iterator;
+        }
+        if (drop_iterator == client.outbound_queue.end()) {
+            return;
+        }
+
+        // Preserve a partially written frame so the TCP byte stream stays aligned.
+        client.outbound_queue.erase(drop_iterator);
     }
 
     client.outbound_queue.push_back(PendingWrite{
@@ -596,12 +614,16 @@ WorkerId IOThread::SelectWorkerForJoin(PlayerId player_id) const
 bool IOThread::PushToWorker(WorkerId worker_id, IoToWorkerMessage message)
 {
     const auto worker_index = static_cast<std::size_t>(worker_id.value());
-    if (worker_index >= worker_inboxes_.size() || !worker_inboxes_[worker_index].IsValid()) {
+    if (worker_index >= worker_inboxes_.size()) {
         Logger::Warn("[IO] worker inbox unavailable worker={}", worker_id.value());
         return false;
     }
 
-    return worker_inboxes_[worker_index].Push(std::move(message));
+    if (!worker_inboxes_[worker_index].Push(std::move(message))) {
+        Logger::Warn("[IO] worker inbox invalid worker={}", worker_id.value());
+        return false;
+    }
+    return true;
 }
 
 } // namespace rrs

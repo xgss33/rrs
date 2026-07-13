@@ -101,28 +101,28 @@ bool IsFrameLengthValid(std::uint32_t length)
 
 } // namespace
 
-std::optional<BinaryFrame> TryDecodeBinaryFrame(std::string& buffer)
+BinaryFrameDecodeStatus TryDecodeBinaryFrame(std::string& buffer, BinaryFrame& output)
 {
     if (buffer.size() < kLengthFieldSize) {
-        return std::nullopt;
+        return BinaryFrameDecodeStatus::kIncomplete;
     }
 
     const auto length = ReadU32At(buffer, 0);
     if (!IsFrameLengthValid(length)) {
-        return std::nullopt;
+        return BinaryFrameDecodeStatus::kInvalid;
     }
 
     const auto frame_size = kLengthFieldSize + static_cast<std::size_t>(length);
     if (buffer.size() < frame_size) {
-        return std::nullopt;
+        return BinaryFrameDecodeStatus::kIncomplete;
     }
 
-    auto frame = BinaryFrame{
+    output = BinaryFrame{
         .message_type = static_cast<std::uint8_t>(buffer[kLengthFieldSize]),
         .payload = buffer.substr(kLengthFieldSize + kMessageTypeSize, static_cast<std::size_t>(length) - kMessageTypeSize),
     };
     buffer.erase(0, frame_size);
-    return frame;
+    return BinaryFrameDecodeStatus::kComplete;
 }
 
 std::optional<BinaryJoinRequest> DecodeJoinRequest(const BinaryFrame& frame)

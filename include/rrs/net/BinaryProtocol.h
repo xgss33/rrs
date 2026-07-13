@@ -29,6 +29,12 @@ struct BinaryFrame {
     std::string payload;
 };
 
+enum class BinaryFrameDecodeStatus {
+    kIncomplete,
+    kComplete,
+    kInvalid,
+};
+
 struct BinaryJoinRequest {
     PlayerId player_id;
 };
@@ -45,7 +51,7 @@ struct BinaryInputRequest {
 struct BinaryLeaveRequest {
 };
 
-[[nodiscard]] std::optional<BinaryFrame> TryDecodeBinaryFrame(std::string& buffer);
+[[nodiscard]] BinaryFrameDecodeStatus TryDecodeBinaryFrame(std::string& buffer, BinaryFrame& output);
 
 [[nodiscard]] std::optional<BinaryJoinRequest> DecodeJoinRequest(const BinaryFrame& frame);
 [[nodiscard]] std::optional<BinaryReconnectRequest> DecodeReconnectRequest(const BinaryFrame& frame);

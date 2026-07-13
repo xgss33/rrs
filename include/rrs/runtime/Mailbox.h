@@ -22,7 +22,7 @@ public:
     Mailbox(const Mailbox&) = delete;
     Mailbox& operator=(const Mailbox&) = delete;
 
-    [[nodiscard]] bool Push(T message)
+    void Push(T message)
     {
         bool should_notify = false;
         {
@@ -34,7 +34,6 @@ public:
         if (should_notify && notify_callback_) {
             notify_callback_();
         }
-        return true;
     }
 
     [[nodiscard]] std::vector<T> Drain()
@@ -62,15 +61,14 @@ public:
     MailboxSender() = default;
     explicit MailboxSender(Mailbox<T>& mailbox) noexcept : mailbox_(&mailbox) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return mailbox_ != nullptr; }
-
     [[nodiscard]] bool Push(T message) const
     {
         if (mailbox_ == nullptr) {
             return false;
         }
 
-        return mailbox_->Push(std::move(message));
+        mailbox_->Push(std::move(message));
+        return true;
     }
 
 private:

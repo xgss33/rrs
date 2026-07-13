@@ -24,18 +24,27 @@ public:
     template <typename... Args>
     static void Info(std::format_string<Args...> fmt, Args&&... args)
     {
+        if (!ShouldLog(Level::kInfo)) {
+            return;
+        }
         Log(Level::kInfo, std::format(fmt, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
     static void Warn(std::format_string<Args...> fmt, Args&&... args)
     {
+        if (!ShouldLog(Level::kWarning)) {
+            return;
+        }
         Log(Level::kWarning, std::format(fmt, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
     static void Error(std::format_string<Args...> fmt, Args&&... args)
     {
+        if (!ShouldLog(Level::kError)) {
+            return;
+        }
         Log(Level::kError, std::format(fmt, std::forward<Args>(args)...));
     }
 
@@ -52,6 +61,7 @@ private:
         kError,
     };
 
+    [[nodiscard]] static bool ShouldLog(Level level) noexcept;
     static void Log(Level level, std::string_view message);
     static void LogMetrics(std::string_view message);
 };

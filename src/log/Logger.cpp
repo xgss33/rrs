@@ -58,26 +58,23 @@ void Logger::Initialize(std::string_view app_name,
     LogMetrics(std::format("{} logger Initialized log_level={}", app_name, LogLevelName(log_level)));
 }
 
+bool Logger::ShouldLog(Level level) noexcept
+{
+    switch (g_log_level) {
+    case LogLevel::kInfo:
+        return true;
+    case LogLevel::kWarn:
+        return level == Level::kWarning || level == Level::kError;
+    case LogLevel::kError:
+        return level == Level::kError;
+    case LogLevel::kOff:
+        return false;
+    }
+    return true;
+}
+
 void Logger::Log(Level level, std::string_view message)
 {
-    const auto should_log = [level] {
-        switch (g_log_level) {
-        case LogLevel::kInfo:
-            return true;
-        case LogLevel::kWarn:
-            return level == Level::kWarning || level == Level::kError;
-        case LogLevel::kError:
-            return level == Level::kError;
-        case LogLevel::kOff:
-            return false;
-        }
-        return true;
-    }();
-
-    if (!should_log) {
-        return;
-    }
-
     switch (level) {
     case Level::kInfo:
         spdlog::info("{}", message);
