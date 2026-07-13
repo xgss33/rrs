@@ -1,5 +1,6 @@
 #include "rrs/net/Acceptor.h"
 
+#include "rrs/base/Threading.h"
 #include "rrs/net/IOThread.h"
 #include "rrs/log/Logger.h"
 
@@ -57,6 +58,8 @@ void Acceptor::Stop()
 
 void Acceptor::Run(std::stop_token stop_token)
 {
+    SetCurrentThreadName("rrs-accept");
+
     while (!stop_token.stop_requested()) {
         sockaddr_in client_address{};
         socklen_t address_length = sizeof(client_address);

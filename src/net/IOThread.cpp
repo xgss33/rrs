@@ -1,5 +1,5 @@
 #include "rrs/net/IOThread.h"
-
+#include "rrs/base/Threading.h"
 #include "rrs/metrics/MetricsRegistry.h"
 #include "rrs/net/BinaryProtocol.h"
 #include "rrs/log/Logger.h"
@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/socket.h>
@@ -91,6 +92,8 @@ void IOThread::EnqueueAcceptedClient(int client_fd)
 
 void IOThread::Run(std::stop_token stop_token)
 {
+    SetCurrentThreadName("rrs-io-" + std::to_string(io_thread_id_.value()));
+
     while (!stop_token.stop_requested()) {
         DrainAcceptedClients();
         DrainInbox();

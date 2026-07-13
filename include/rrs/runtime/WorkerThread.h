@@ -12,7 +12,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <thread>
 #include <vector>
 
@@ -22,8 +21,7 @@ class MetricsRegistry;
 
 class WorkerThread {
 public:
-    WorkerThread(std::string name,
-                 WorkerId worker_id,
+    WorkerThread(WorkerId worker_id,
                  std::chrono::nanoseconds tick_interval,
                  std::uint32_t max_catch_up_ticks,
                  std::size_t room_capacity,
@@ -61,7 +59,6 @@ private:
                          const std::vector<SessionId>& excluded_sessions);
     void PushToIo(const Session& session, WorkerToIoMessage message);
 
-    std::string name_;
     WorkerInbox inbox_;  // 所有的io都向这里输入
     std::vector<IoInboxSender> io_inboxes_;  // 向各个io输出
     WorkerId worker_id_;

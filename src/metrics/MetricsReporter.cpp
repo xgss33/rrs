@@ -1,5 +1,5 @@
 #include "rrs/metrics/MetricsReporter.h"
-
+#include "rrs/base/Threading.h"
 #include "rrs/log/Logger.h"
 #include "rrs/metrics/MetricsRegistry.h"
 
@@ -41,6 +41,8 @@ void MetricsReporter::Stop()
 
 void MetricsReporter::Run(std::stop_token stop_token)
 {
+    SetCurrentThreadName("rrs-metrics");
+
     auto previous_snapshot = metrics_.CollectAndResetWindow();
     auto previous_cpu_sample = ReadProcessCpuSample();
     auto previous_sample_time = std::chrono::steady_clock::now();

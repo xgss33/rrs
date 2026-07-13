@@ -27,6 +27,7 @@ add_executable(rrs
     src/runtime/SessionRegistry.cpp
     src/runtime/WorkerRoomRegistry.cpp
     src/runtime/WorkerThread.cpp
+    src/base/Threading.cpp
 )
 
 target_include_directories(rrs

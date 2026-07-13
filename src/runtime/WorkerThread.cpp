@@ -1,4 +1,5 @@
 #include "rrs/runtime/WorkerThread.h"
+#include "rrs/base/Threading.h"
 #include "rrs/metrics/MetricsRegistry.h"
 #include "rrs/net/BinaryProtocol.h"
 #include "rrs/runtime/WorkerToIoMessage.h"
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <string>
 #include <thread>
 #include <utility>
 
@@ -21,14 +23,12 @@ namespace {
 
 } // namespace
 
-WorkerThread::WorkerThread(std::string name,
-                           WorkerId worker_id,
+WorkerThread::WorkerThread(WorkerId worker_id,
                            std::chrono::nanoseconds tick_interval,
                            std::uint32_t max_catch_up_ticks,
                            std::size_t room_capacity,
                            MetricsRegistry& metrics)
-    : name_(std::move(name))
-    , worker_id_(worker_id)
+    : worker_id_(worker_id)
     , max_catch_up_ticks_(std::max(1U, max_catch_up_ticks))
     , metrics_(metrics)
     , rooms_(worker_id, tick_interval, room_capacity)
@@ -47,7 +47,7 @@ void WorkerThread::SetIoInboxes(std::vector<IoInboxSender> io_inboxes)
 
 void WorkerThread::Start()
 {
-    Logger::Info("[Worker] starting {} dynamic_rooms=true", name_);
+    Logger::Info("[Worker] starting id={} dynamic_rooms=true", worker_id_.value());
     thread_ = std::jthread([this](std::stop_token stop_token) {
         Run(stop_token);
     });
@@ -63,7 +63,8 @@ void WorkerThread::Stop()
 
 void WorkerThread::Run(std::stop_token stop_token)
 {
-    Logger::Info("[Worker] {} loop started", name_);
+    SetCurrentThreadName("rrs-w-" + std::to_string(worker_id_.value()));
+    Logger::Info("[Worker] id={} loop started", worker_id_.value());
 
     while (!stop_token.stop_requested()) {
         const auto now = Clock::now();
@@ -74,7 +75,7 @@ void WorkerThread::Run(std::stop_token stop_token)
         std::this_thread::sleep_until(next_wake_time);
     }
 
-    Logger::Info("[Worker] {} loop stopped", name_);
+    Logger::Info("[Worker] id={} loop stopped", worker_id_.value());
 }
 
 void WorkerThread::DrainInbox(Clock::time_point frame_time)

@@ -64,7 +64,6 @@ int main(int argc, char* argv[])
         workers.reserve(worker_thread_count);
         for (std::uint32_t worker_index = 0; worker_index < worker_thread_count; ++worker_index) {
             workers.push_back(std::make_unique<rrs::WorkerThread>(
-                std::format("worker-{}", worker_index),
                 rrs::WorkerId{worker_index},
                 tick_interval,
                 config.max_catch_up_ticks,
