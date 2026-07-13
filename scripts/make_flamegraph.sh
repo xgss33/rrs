@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
 
 if [[ $# -lt 1 || $# -gt 3 ]]; then
     echo "usage: $0 <output-name-without-svg> [pid] [seconds]" >&2
@@ -25,12 +27,12 @@ if [[ ! -x "${flamegraph_dir}/stackcollapse-perf.pl" || ! -x "${flamegraph_dir}/
     exit 1
 fi
 
-mkdir -p perf/flamegraphs
+mkdir -p "${repo_root}/perf/flamegraphs"
 
-perf_data="perf_${output_name}.data"
-perf_script="out_${output_name}.perf"
-folded="out_${output_name}.folded"
-svg="perf/flamegraphs/${output_name}.svg"
+perf_data="${repo_root}/perf_${output_name}.data"
+perf_script="${repo_root}/out_${output_name}.perf"
+folded="${repo_root}/out_${output_name}.folded"
+svg="${repo_root}/perf/flamegraphs/${output_name}.svg"
 
 perf record -F 99 -p "${pid}" -g -o "${perf_data}" -- sleep "${seconds}"
 perf script -i "${perf_data}" > "${perf_script}"

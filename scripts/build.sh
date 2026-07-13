@@ -3,6 +3,8 @@ set -euo pipefail
 
 mode="${1:-release}"
 clean="${2:-}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
 
 if [[ "${mode}" != "release" && "${mode}" != "perf" ]]; then
     echo "usage: $0 [release|perf] [clean]" >&2
@@ -15,7 +17,7 @@ if [[ -n "${clean}" && "${clean}" != "clean" ]]; then
 fi
 
 if [[ "${clean}" == "clean" ]]; then
-    rm -rf build
+    rm -rf "${repo_root}/build"
 fi
 
 : "${CC:=gcc-13}"
@@ -24,8 +26,8 @@ export CC
 export CXX
 
 cmake_args=(
-    -S .
-    -B build
+    -S "${repo_root}"
+    -B "${repo_root}/build"
     -G Ninja
 )
 
@@ -39,4 +41,4 @@ else
 fi
 
 cmake "${cmake_args[@]}"
-cmake --build build -j"$(nproc)"
+cmake --build "${repo_root}/build" -j"$(nproc)"
