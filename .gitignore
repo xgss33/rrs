@@ -9,8 +9,11 @@ tmp/
 
 # Local profiling scratch
 perf.data*
+perf_*.data
 out.perf
+out_*.perf
 *.folded
+scripts/download_flamegraph.local.sh
 
 # Local editor/system files
 .idea/
