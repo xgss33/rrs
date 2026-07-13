@@ -28,9 +28,11 @@ IOThread::IOThread(IoThreadId io_thread_id,
                    std::size_t outbound_queue_limit)
     : io_thread_id_(io_thread_id)
     , worker_inboxes_(std::move(worker_inboxes))
+    , inbox_([this] { Wake(); })
     , outbound_queue_limit_(outbound_queue_limit)
     , session_registry_(session_registry)
     , metrics_(metrics)
+    , accepted_clients_([this] { Wake(); })
 {
 }
 
@@ -68,6 +70,7 @@ void IOThread::Stop()
 {
     if (thread_.joinable()) {
         thread_.request_stop();
+        Wake();
         thread_.join();
     }
 
@@ -79,6 +82,36 @@ void IOThread::Stop()
     if (wake_event_fd_ >= 0) {
         ::close(wake_event_fd_);
         wake_event_fd_ = -1;
+    }
+}
+
+void IOThread::Wake()
+{
+    if (wake_event_fd_ < 0) {
+        return;
+    }
+
+    constexpr std::uint64_t kWakeValue = 1;
+    while (true) {
+        const auto bytes_written = ::write(wake_event_fd_, &kWakeValue, sizeof(kWakeValue));
+        if (bytes_written == sizeof(kWakeValue)) {
+            return;
+        }
+
+        if (bytes_written < 0 && errno == EINTR) {
+            continue;
+        }
+
+        if (bytes_written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return;
+        }
+
+        if (bytes_written < 0) {
+            Logger::Warn("[IO] wake eventfd write failed id={} error={}", io_thread_id_.value(), std::strerror(errno));
+        } else {
+            Logger::Warn("[IO] wake eventfd short write id={} bytes={}", io_thread_id_.value(), bytes_written);
+        }
+        return;
     }
 }
 
@@ -160,10 +193,9 @@ void IOThread::DrainWakeEvent()
 void IOThread::PollSocketEvents(std::stop_token stop_token)
 {
     constexpr int kMaxEvents = 64;
-    constexpr int kEpollTimeoutMs = 1;
     std::array<epoll_event, kMaxEvents> events{};
 
-    const auto event_count = ::epoll_wait(epoll_fd_, events.data(), static_cast<int>(events.size()), kEpollTimeoutMs);
+    const auto event_count = ::epoll_wait(epoll_fd_, events.data(), static_cast<int>(events.size()), -1);
     if (event_count < 0) {
         if (errno != EINTR) {
             Logger::Warn("[IO] epoll_wait failed id={} error={}", io_thread_id_.value(), std::strerror(errno));

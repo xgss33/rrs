@@ -96,11 +96,14 @@ int main(int argc, char* argv[])
 
         for (auto& worker : workers) {
             worker->SetIoInboxes(io_inboxes);
-            worker->Start();
         }
 
         for (auto& io_thread : io_threads) {
             io_thread->Start();
+        }
+
+        for (auto& worker : workers) {
+            worker->Start();
         }
 
         rrs::Acceptor acceptor{config.listen_port, io_threads};

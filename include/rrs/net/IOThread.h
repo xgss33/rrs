@@ -43,7 +43,6 @@ public:
     void EnqueueAcceptedClient(int client_fd);
 
     [[nodiscard]] IoThreadId id() const noexcept { return io_thread_id_; }
-    [[nodiscard]] int wake_event_fd() const noexcept { return wake_event_fd_; }
     [[nodiscard]] IoInboxSender inbox_sender() noexcept { return IoInboxSender{inbox_}; }
 
 private:
@@ -62,6 +61,7 @@ private:
     };
 
     void Run(std::stop_token stop_token);
+    void Wake();
     void SetClientWriteInterest(ClientConnection& client, bool enabled);
     void DrainWakeEvent();
     void DrainAcceptedClients();

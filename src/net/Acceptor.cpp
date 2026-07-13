@@ -77,7 +77,6 @@ void Acceptor::Run(std::stop_token stop_token)
 
         auto& io_thread = SelectIoThread();
         io_thread.EnqueueAcceptedClient(client_fd);
-        WakeIoThread(io_thread);
         Logger::Info("[Acceptor] accepted fd={} assigned_io={}", client_fd, io_thread.id().value());
     }
 
@@ -89,21 +88,6 @@ IOThread& Acceptor::SelectIoThread()
     auto& io_thread = *io_threads_[next_io_thread_index_];
     next_io_thread_index_ = (next_io_thread_index_ + 1) % io_threads_.size();
     return io_thread;
-}
-
-void Acceptor::WakeIoThread(const IOThread& io_thread) const
-{
-    const auto event_fd = io_thread.wake_event_fd();
-    if (event_fd < 0) {
-        Logger::Warn("[Acceptor] cannot wake IOThread id={} because eventfd is invalid", io_thread.id().value());
-        return;
-    }
-
-    const std::uint64_t value = 1;
-    const auto bytes_written = ::write(event_fd, &value, sizeof(value));
-    if (bytes_written < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-        Logger::Warn("[Acceptor] eventfd write failed io={} error={}", io_thread.id().value(), std::strerror(errno));
-    }
 }
 
 int Acceptor::CreateListenSocket() const

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <functional>
 #include <iterator>
 #include <mutex>
 #include <utility>
@@ -11,15 +12,28 @@ namespace rrs {
 template <typename T>
 class Mailbox {
 public:
-    Mailbox() = default;
+    using NotifyCallback = std::function<void()>;
+
+    explicit Mailbox(NotifyCallback notify_callback = {})
+        : notify_callback_(std::move(notify_callback))
+    {
+    }
 
     Mailbox(const Mailbox&) = delete;
     Mailbox& operator=(const Mailbox&) = delete;
 
     [[nodiscard]] bool Push(T message)
     {
-        std::scoped_lock lock(mutex_);
-        queue_.push_back(std::move(message));
+        bool should_notify = false;
+        {
+            std::scoped_lock lock(mutex_);
+            should_notify = queue_.empty();
+            queue_.push_back(std::move(message));
+        }
+
+        if (should_notify && notify_callback_) {
+            notify_callback_();
+        }
         return true;
     }
 
@@ -37,6 +51,7 @@ public:
     }
 
 private:
+    NotifyCallback notify_callback_;
     std::mutex mutex_;
     std::deque<T> queue_;
 };

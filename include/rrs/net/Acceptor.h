@@ -26,7 +26,6 @@ public:
 private:
     void Run(std::stop_token stop_token);
     [[nodiscard]] IOThread& SelectIoThread();
-    void WakeIoThread(const IOThread& io_thread) const;
     [[nodiscard]] int CreateListenSocket() const;
 
     std::uint16_t port_;
