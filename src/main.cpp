@@ -1,5 +1,5 @@
-#include "rrs/app/AppConfig.h"
 #include "rrs/base/Types.h"
+#include "rrs/config/ServerConfig.h"
 #include "rrs/net/Acceptor.h"
 #include "rrs/net/IOThread.h"
 #include "rrs/metrics/MetricsRegistry.h"
@@ -8,76 +8,27 @@
 #include "rrs/runtime/SessionRegistry.h"
 #include "rrs/log/Logger.h"
 
-#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <exception>
 #include <format>
 #include <memory>
-#include <stdexcept>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <vector>
 
 namespace {
 
 volatile std::sig_atomic_t g_stop_requested = 0;
-constexpr std::uint32_t kIoThreadCount = 2;
 constexpr auto kMetricsReportInterval = std::chrono::seconds{5};
 
 using WorkerThreads = std::vector<std::unique_ptr<rrs::WorkerThread>>;
 using IOThreads = std::vector<std::unique_ptr<rrs::IOThread>>;
 
-struct StartupOptions {
-    rrs::LogLevel log_level{rrs::LogLevel::kInfo};
-};
-
 void HandleStopSignal(int)
 {
     g_stop_requested = 1;
-}
-
-std::chrono::nanoseconds MakeTickInterval(std::uint32_t tick_hz)
-{
-    return std::chrono::nanoseconds{1'000'000'000LL / tick_hz};
-}
-
-rrs::LogLevel ParseLogLevel(std::string_view value)
-{
-    if (value == "info") {
-        return rrs::LogLevel::kInfo;
-    }
-    if (value == "warn") {
-        return rrs::LogLevel::kWarn;
-    }
-    if (value == "error") {
-        return rrs::LogLevel::kError;
-    }
-    if (value == "off") {
-        return rrs::LogLevel::kOff;
-    }
-    throw std::runtime_error("invalid --log-level, expected info|warn|error|off");
-}
-
-StartupOptions ParseStartupOptions(int argc, char* argv[])
-{
-    auto options = StartupOptions{};
-    for (int index = 1; index < argc; ++index) {
-        const auto argument = std::string_view{argv[index]};
-        if (argument == "--log-level") {
-            if (index + 1 >= argc) {
-                throw std::runtime_error("missing value for --log-level");
-            }
-            ++index;
-            options.log_level = ParseLogLevel(argv[index]);
-            continue;
-        }
-
-        throw std::runtime_error("unknown startup option: " + std::string{argument});
-    }
-    return options;
 }
 
 } // namespace
@@ -88,15 +39,15 @@ int main(int argc, char* argv[])
         std::signal(SIGINT, HandleStopSignal);
         std::signal(SIGTERM, HandleStopSignal);
 
-        const auto startup_options = ParseStartupOptions(argc, argv);
-        const auto config = rrs::AppConfig{};
-        const auto worker_thread_count = std::max(1U, config.worker_thread_count);
-        const auto tick_interval = MakeTickInterval(config.target_tick_hz);
+        const auto config = rrs::ParseServerConfig(argc, argv);
+        const auto io_thread_count = config.io_thread_count;
+        const auto worker_thread_count = config.worker_thread_count;
+        const auto tick_interval = std::chrono::nanoseconds{1'000'000'000LL / config.target_tick_hz};
 
-        rrs::Logger::Initialize(config.app_name, startup_options.log_level);
+        rrs::Logger::Initialize(config.app_name, config.log_level);
         rrs::Logger::Info("starting {} on port {}", config.app_name, config.listen_port);
         rrs::Logger::Info("io_threads={} worker_threads={} target_tick_hz={}",
-                          kIoThreadCount,
+                          io_thread_count,
                           worker_thread_count,
                           config.target_tick_hz);
         rrs::Logger::Info("server starting port={} room_capacity={} max_catch_up_ticks={} outbound_queue_limit={}",
@@ -128,8 +79,8 @@ int main(int argc, char* argv[])
         }
 
         IOThreads io_threads;
-        io_threads.reserve(kIoThreadCount);
-        for (std::uint32_t io_index = 0; io_index < kIoThreadCount; ++io_index) {
+        io_threads.reserve(io_thread_count);
+        for (std::uint32_t io_index = 0; io_index < io_thread_count; ++io_index) {
             io_threads.push_back(std::make_unique<rrs::IOThread>(
                 rrs::IoThreadId{io_index},
                 worker_inboxes,
@@ -157,8 +108,7 @@ int main(int argc, char* argv[])
         metrics_reporter.Start();
         acceptor.Start();
 
-        rrs::Logger::Info("server accepts binary protocol commands: JOIN, RECONNECT, INPUT, LEAVE");
-        rrs::Logger::Info("server is running; press Ctrl+C or send SIGTERM to stop");
+        rrs::Logger::Info("server started");
         while (g_stop_requested == 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds{200});
         }

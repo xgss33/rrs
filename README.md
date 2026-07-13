@@ -1,4 +1,4 @@
-# RealtimeRoomServer
+# rrs
 
 Tick-driven room-based realtime multiplayer server.
 
@@ -42,13 +42,13 @@ cmake --build build
 Run the server:
 
 ```bash
-./build/realtime_room_server
+./build/rrs
 ```
 
 Run pressure tests with most per-client info logs disabled while keeping metrics:
 
 ```bash
-./build/realtime_room_server --log-level warn
+./build/rrs --io 3 --worker 1 --log warn
 ```
 
 Stop the server with `Ctrl+C` or `SIGTERM`.

@@ -1,24 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(RealtimeRoomServer LANGUAGES CXX)
+project(rrs LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-include(FetchContent)
-
 find_package(Threads REQUIRED)
 
-FetchContent_Declare(
-    spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.15.3
-)
-FetchContent_MakeAvailable(spdlog)
+add_subdirectory(third_party/spdlog)
 
-add_executable(realtime_room_server
-    src/app/main.cpp
+add_executable(rrs
+    src/main.cpp
+    src/config/ServerConfig.cpp
     src/game/FoodSpatialIndex.cpp
     src/game/Room.cpp
     src/log/Logger.cpp
@@ -35,15 +29,15 @@ add_executable(realtime_room_server
     src/runtime/WorkerThread.cpp
 )
 
-target_include_directories(realtime_room_server
+target_include_directories(rrs
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_link_libraries(realtime_room_server PRIVATE spdlog::spdlog Threads::Threads)
+target_link_libraries(rrs PRIVATE spdlog::spdlog Threads::Threads)
 
 if (MSVC)
-    target_compile_options(realtime_room_server PRIVATE /W4)
+    target_compile_options(rrs PRIVATE /W4)
 else()
-    target_compile_options(realtime_room_server PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(rrs PRIVATE -Wall -Wextra -Wpedantic)
 endif()
