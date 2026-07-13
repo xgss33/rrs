@@ -44,7 +44,7 @@ int main(int argc, char* argv[])
         const auto worker_thread_count = config.worker_thread_count;
         const auto tick_interval = std::chrono::nanoseconds{1'000'000'000LL / config.target_tick_hz};
 
-        rrs::Logger::Initialize(config.app_name, config.log_level);
+        rrs::Logger::Initialize(config.app_name, config.log_level, io_thread_count, worker_thread_count);
         rrs::Logger::Info("starting {} on port {}", config.app_name, config.listen_port);
         rrs::Logger::Info("io_threads={} worker_threads={} target_tick_hz={}",
                           io_thread_count,

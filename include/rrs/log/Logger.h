@@ -1,6 +1,7 @@
 #pragma once
 
 #include <format>
+#include <cstdint>
 #include <string_view>
 #include <utility>
 
@@ -15,7 +16,10 @@ enum class LogLevel {
 
 class Logger {
 public:
-    static void Initialize(std::string_view app_name, LogLevel log_level);
+    static void Initialize(std::string_view app_name,
+                           LogLevel log_level,
+                           std::uint32_t io_thread_count,
+                           std::uint32_t worker_thread_count);
 
     template <typename... Args>
     static void Info(std::format_string<Args...> fmt, Args&&... args)

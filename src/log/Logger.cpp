@@ -1,10 +1,14 @@
 #include "rrs/log/Logger.h"
 
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <format>
 #include <string>
 #include <string_view>
 #include <utility>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 
 namespace rrs {
@@ -28,12 +32,26 @@ LogLevel g_log_level = LogLevel::kInfo;
     return "info";
 }
 
+[[nodiscard]] std::string MakeLogFilePath(std::uint32_t io_thread_count, std::uint32_t worker_thread_count)
+{
+    const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    const auto local_time = std::chrono::zoned_time{std::chrono::current_zone(), now};
+    return std::format("logs/{:%Y%m%d_%H%M%S}_io{}_worker{}.log", local_time, io_thread_count, worker_thread_count);
+}
+
 } // namespace
 
-void Logger::Initialize(std::string_view app_name, LogLevel log_level)
+void Logger::Initialize(std::string_view app_name,
+                        LogLevel log_level,
+                        std::uint32_t io_thread_count,
+                        std::uint32_t worker_thread_count)
 {
     g_log_level = log_level;
-    auto logger = spdlog::stdout_color_mt(std::string(app_name));
+    std::filesystem::create_directories("logs");
+    auto logger = spdlog::basic_logger_mt(
+        std::string(app_name),
+        MakeLogFilePath(io_thread_count, worker_thread_count),
+        true);
     logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e][%l][%t] %v");
     logger->set_level(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
