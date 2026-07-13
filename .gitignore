@@ -13,7 +13,7 @@ perf_*.data
 out.perf
 out_*.perf
 *.folded
-scripts/download_flamegraph.local.sh
+scripts/*.local.sh
 
 # Local editor/system files
 .idea/
