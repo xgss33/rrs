@@ -31,8 +31,8 @@ IOThread::IOThread(IoThreadId io_thread_id,
     , inbox_([this] { Wake(); })
     , outbound_queue_limit_(outbound_queue_limit)
     , session_registry_(session_registry)
-    , metrics_(metrics)
     , accepted_clients_([this] { Wake(); })
+    , metrics_(metrics)
 {
 }
 
@@ -128,9 +128,11 @@ void IOThread::Run(std::stop_token stop_token)
         DrainAcceptedClients();
         DrainInbox();
         FlushDirtyClients();
+        PublishSendMetrics();
         PollSocketEvents(stop_token);
     }
 
+    PublishSendMetrics();
     while (!clients_.empty()) {
         CloseClient(clients_.begin()->first);
     }
@@ -283,6 +285,18 @@ void IOThread::FlushDirtyClients()
     }
 }
 
+void IOThread::PublishSendMetrics()
+{
+    if (pending_send_metrics_.send_calls == 0
+        && pending_send_metrics_.nonempty_flushes == 0
+        && pending_send_metrics_.frames_at_flush == 0) {
+        return;
+    }
+
+    metrics_.MergeIoSendMetrics(pending_send_metrics_);
+    pending_send_metrics_ = {};
+}
+
 void IOThread::HandleSocketEvent(int client_fd, std::uint32_t events)
 {
     auto iterator = clients_.find(client_fd);
@@ -361,9 +375,16 @@ bool IOThread::ReadClientFrames(ClientConnection& client, std::vector<BinaryFram
 
 bool IOThread::FlushClientOutbound(ClientConnection& client)
 {
+    const auto queue_depth = client.outbound_queue.size();
+    if (queue_depth > 0) {
+        ++pending_send_metrics_.nonempty_flushes;
+        pending_send_metrics_.frames_at_flush += queue_depth;
+    }
+
     while (!client.outbound_queue.empty()) {
         auto& pending_write = client.outbound_queue.front();
         const auto& frame = *pending_write.encoded_frame;
+        ++pending_send_metrics_.send_calls;
         const auto bytes_sent = ::send(
             client.fd,
             frame.data() + pending_write.offset,

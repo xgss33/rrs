@@ -63,9 +63,11 @@ private:
     std::vector<IoInboxSender> io_inboxes_;  // 向各个io输出
     WorkerId worker_id_;
     std::uint32_t max_catch_up_ticks_;
-    MetricsRegistry& metrics_;
     WorkerRoomRegistry rooms_;  // 对拥有的房间以及操作房间的函数的封装, 为了减少worker文件大小, 提高可读
     std::jthread thread_;
+
+private:
+    MetricsRegistry& metrics_;
 };
 
 } // namespace rrs

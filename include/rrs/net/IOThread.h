@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rrs/base/Types.h"
+#include "rrs/metrics/MetricsRegistry.h"
 #include "rrs/net/IoSessionRouter.h"
 #include "rrs/runtime/IoToWorkerMessage.h"
 #include "rrs/runtime/Mailbox.h"
@@ -22,7 +23,6 @@ namespace rrs {
 struct BinaryFrame;
 
 class SessionRegistry;
-class MetricsRegistry;
 
 class IOThread {
 public:
@@ -90,7 +90,6 @@ private:
     IoInbox inbox_;
     std::size_t outbound_queue_limit_;
     SessionRegistry& session_registry_;
-    MetricsRegistry& metrics_;
     IoSessionRouter sessions_;
     std::vector<int> dirty_clients_;
     int epoll_fd_{-1};
@@ -98,6 +97,11 @@ private:
     Mailbox<int> accepted_clients_;
     std::unordered_map<int, ClientConnection> clients_;
     std::jthread thread_;
+
+private:
+    void PublishSendMetrics();
+    MetricsRegistry& metrics_;
+    IoSendMetrics pending_send_metrics_;
 };
 
 } // namespace rrs

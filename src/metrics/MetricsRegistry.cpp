@@ -43,6 +43,13 @@ void MetricsRegistry::OnBytesWritten(std::uint64_t byte_count) noexcept
     net_bytes_out_total_.fetch_add(byte_count, std::memory_order_relaxed);
 }
 
+void MetricsRegistry::MergeIoSendMetrics(const IoSendMetrics& metrics) noexcept
+{
+    io_send_calls_.fetch_add(metrics.send_calls, std::memory_order_relaxed);
+    io_nonempty_flushes_.fetch_add(metrics.nonempty_flushes, std::memory_order_relaxed);
+    io_frames_at_flush_.fetch_add(metrics.frames_at_flush, std::memory_order_relaxed);
+}
+
 void MetricsRegistry::SetWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost_us) noexcept
 {
     const auto worker_index = static_cast<std::size_t>(worker_id.value());
@@ -68,6 +75,11 @@ MetricsSnapshot MetricsRegistry::CollectAndResetWindow()
         .net_connections_current = net_connections_current_.load(std::memory_order_relaxed),
         .net_bytes_in_total = net_bytes_in_total_.load(std::memory_order_relaxed),
         .net_bytes_out_total = net_bytes_out_total_.load(std::memory_order_relaxed),
+        .io_send_metrics = {
+            .send_calls = io_send_calls_.load(std::memory_order_relaxed),
+            .nonempty_flushes = io_nonempty_flushes_.load(std::memory_order_relaxed),
+            .frames_at_flush = io_frames_at_flush_.load(std::memory_order_relaxed),
+        },
         .worker_tick_metrics = {},
     };
 

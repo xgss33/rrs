@@ -30,8 +30,8 @@ WorkerThread::WorkerThread(WorkerId worker_id,
                            MetricsRegistry& metrics)
     : worker_id_(worker_id)
     , max_catch_up_ticks_(std::max(1U, max_catch_up_ticks))
-    , metrics_(metrics)
     , rooms_(worker_id, tick_interval, room_capacity)
+    , metrics_(metrics)
 {
 }
 

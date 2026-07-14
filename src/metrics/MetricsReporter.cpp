@@ -67,6 +67,16 @@ void MetricsReporter::Run(std::stop_token stop_token)
         const auto bytes_out_per_sec = elapsed > 0.0
             ? static_cast<std::uint64_t>((snapshot.net_bytes_out_total - previous_snapshot.net_bytes_out_total) / elapsed)
             : 0;
+        const auto send_calls = snapshot.io_send_metrics.send_calls - previous_snapshot.io_send_metrics.send_calls;
+        const auto nonempty_flushes =
+            snapshot.io_send_metrics.nonempty_flushes - previous_snapshot.io_send_metrics.nonempty_flushes;
+        const auto frames_at_flush =
+            snapshot.io_send_metrics.frames_at_flush - previous_snapshot.io_send_metrics.frames_at_flush;
+        const auto send_calls_per_sec =
+            elapsed > 0.0 ? static_cast<std::uint64_t>(send_calls / elapsed) : 0;
+        const auto avg_frames_per_flush = nonempty_flushes > 0
+            ? static_cast<double>(frames_at_flush) / static_cast<double>(nonempty_flushes)
+            : 0.0;
 
         const auto current_cpu_sample = ReadProcessCpuSample();
         const auto cpu_percent = previous_cpu_sample && current_cpu_sample
@@ -76,11 +86,14 @@ void MetricsReporter::Run(std::stop_token stop_token)
 
         Logger::Metrics(
             "[Metrics] rrs_net_connections_current={} rrs_net_bytes_in_per_sec={} rrs_net_bytes_out_per_sec={} "
+            "rrs_net_send_calls_per_sec={} rrs_net_avg_frames_per_flush={:.2f} "
             "rrs_process_cpu_percent={:.2f} rrs_process_memory_rss_bytes={} "
             "rrs_worker_tick_cost_us_last={} rrs_worker_tick_cost_us_max_5s={}",
             snapshot.net_connections_current,
             bytes_in_per_sec,
             bytes_out_per_sec,
+            send_calls_per_sec,
+            avg_frames_per_flush,
             cpu_percent,
             rss_bytes,
             FormatWorkerValues(snapshot.worker_tick_metrics, false),
