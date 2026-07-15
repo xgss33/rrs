@@ -4,6 +4,7 @@
 #include "rrs/game/RoomSnapshot.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -20,7 +21,6 @@ constexpr float kEncodedPositionMin = -room_rules::kRoomHalfExtent;
 constexpr float kEncodedPositionMax = room_rules::kRoomHalfExtent;
 constexpr float kEncodedRadiusMin = 0.0F;
 constexpr float kEncodedRadiusMax = 1024.0F;
-constexpr std::uint8_t kPlayerAliveFlag = 1U << 0U;
 
 void AppendU8(std::string& output, std::uint8_t value)
 {
@@ -149,13 +149,14 @@ std::optional<BinaryReconnectRequest> DecodeReconnectRequest(const BinaryFrame& 
 
 std::optional<BinaryInputRequest> DecodeInputRequest(const BinaryFrame& frame)
 {
-    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kInput) || frame.payload.size() != 4) {
+    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kInput) || frame.payload.size() != 5) {
         return std::nullopt;
     }
 
     return BinaryInputRequest{
         .move_x = ReadI16At(frame.payload, 0),
         .move_y = ReadI16At(frame.payload, 2),
+        .input_flags = static_cast<std::uint8_t>(static_cast<unsigned char>(frame.payload[4])),
     };
 }
 
@@ -207,15 +208,27 @@ std::string EncodeErrorPayload(const std::string& message)
 std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot)
 {
     std::string output;
-    output.reserve(13 + snapshot.players.size() * 15 + snapshot.foods.size() * 6);
+    auto player_payload_size = std::size_t{0};
+    for (const auto& player : snapshot.players) {
+        player_payload_size += 10 + 6 * std::popcount(player.active_ball_mask);
+    }
+    output.reserve(13 + player_payload_size + snapshot.foods.size() * 6);
     AppendU16(output, static_cast<std::uint16_t>(snapshot.tick_seq));
     AppendU8(output, static_cast<std::uint8_t>(snapshot.players.size()));
     for (const auto& player : snapshot.players) {
         AppendU64(output, player.player_id.value());
-        AppendI16(output, EncodePosition(player.position.x));
-        AppendI16(output, EncodePosition(player.position.y));
-        AppendU16(output, EncodeRadius(player.radius));
-        AppendU8(output, player.alive ? kPlayerAliveFlag : 0);
+        AppendU16(output, player.active_ball_mask);
+        for (std::size_t ball_index = 0; ball_index < kMaxBallsPerPlayer; ++ball_index) {
+            const auto ball_mask = static_cast<std::uint16_t>(1U << ball_index);
+            if ((player.active_ball_mask & ball_mask) == 0) {
+                continue;
+            }
+
+            const auto& ball = player.balls[ball_index];
+            AppendI16(output, EncodePosition(ball.position.x));
+            AppendI16(output, EncodePosition(ball.position.y));
+            AppendU16(output, EncodeRadius(ball.radius));
+        }
     }
 
     AppendU16(output, static_cast<std::uint16_t>(snapshot.foods.size()));

@@ -46,6 +46,7 @@ struct BinaryReconnectRequest {
 struct BinaryInputRequest {
     std::int16_t move_x{0};
     std::int16_t move_y{0};
+    std::uint8_t input_flags{0};
 };
 
 struct BinaryLeaveRequest {

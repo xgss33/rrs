@@ -466,6 +466,7 @@ void IOThread::HandleBinaryFrame(ClientConnection& client, const BinaryFrame& fr
         HandleInput(client, PlayerInput{
                                 .move_x = request->move_x,
                                 .move_y = request->move_y,
+                                .input_flags = request->input_flags,
                             });
         return;
     }

@@ -4,11 +4,11 @@
 #include <cstddef>
 
 namespace rrs::room_rules {
-
-inline constexpr float kCellSize = 64.0F;
-inline constexpr std::size_t kGridSize = 32;
-inline constexpr std::size_t kCellCount = kGridSize * kGridSize;
-inline constexpr float kRoomHalfExtent = kCellSize * static_cast<float>(kGridSize) * 0.5F;
+// TODO: 这里需要调整命名和依赖关系, 不能让格子限制房间长宽
+inline constexpr float kCellSize = 64.0F;       // 每个格子的边长
+inline constexpr std::size_t kGridSize = 32;    // xy方向上格子的数量
+inline constexpr std::size_t kCellCount = kGridSize * kGridSize;    // 总的格子数量是32*32 = 1024
+inline constexpr float kRoomHalfExtent = kCellSize * static_cast<float>(kGridSize) * 0.5F;  // 房间边长的一半 64 * 32 / 2 = 1024
 
 inline constexpr float kInitialPlayerRadius = 12.0F;
 inline constexpr float kFoodRadius = 4.0F;
@@ -24,6 +24,7 @@ inline constexpr float kFoodGrowthRatio = 0.55F;
 inline constexpr float kEatRadiusRatio = 1.15F;
 inline constexpr float kEatCenterRatio = 0.75F;
 inline constexpr float kPlayerGrowthRatio = 0.75F;
+inline constexpr float kSplitSpawnDistanceRatio = 3.0F;
 
 inline constexpr std::chrono::seconds kRespawnDelay{5};
 inline constexpr std::chrono::seconds kMatchDuration{600};

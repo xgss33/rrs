@@ -62,19 +62,30 @@ public:
     [[nodiscard]] TickResult Tick();
 
 private:
+    struct AggregatedPlayerInput {
+        PlayerId player_id;
+        PlayerInput input;
+    };
+
     void InitializeFood();
 
     [[nodiscard]] std::vector<Command> TakeCommandsForTick(Clock::time_point tick_start);
-    void ProcessCommands(const std::vector<Command>& commands, TickResult& result);
+    [[nodiscard]] std::vector<AggregatedPlayerInput> ProcessCommands(const std::vector<Command>& commands, TickResult& result);
     void JoinPlayer(const Session& session, TickResult& result);
     void ReconnectPlayer(const Session& session, TickResult& result);
-    void ApplyPlayerInput(const Session& session, const PlayerInput& input);
+    void ApplyPlayerInputs(const std::vector<AggregatedPlayerInput>& inputs);
+    void ApplyPlayerInput(PlayerId player_id, const PlayerInput& input);
     void LeavePlayer(const Session& session, TickResult& result);
 
+    void SplitPlayers(const std::vector<AggregatedPlayerInput>& inputs);
+    void SplitPlayer(PlayerEntity& player);
     void MovePlayers();
     void ResolveFoodCollisions();
     void ResolvePlayerCollisions();
-    void TryEatPlayer(PlayerEntity& attacker, PlayerEntity& victim);
+    void TryEatBall(PlayerEntity& attacker,
+                    std::size_t attacker_ball_index,
+                    PlayerEntity& victim,
+                    std::size_t victim_ball_index);
     void RespawnDuePlayers();
     void UpdateMatchState();
 
