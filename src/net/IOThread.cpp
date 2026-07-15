@@ -137,7 +137,7 @@ void IOThread::Run(std::stop_token stop_token)
         CloseClient(clients_.begin()->first);
     }
 
-    Logger::Info("[IO] TCP IO thread stopped sessions={}", sessions_.size());
+    Logger::Info("[IO] TCP IO thread stopped sessions={}", client_fd_by_session_.size());
 }
 
 void IOThread::SetClientWriteInterest(ClientConnection& client, bool enabled)
@@ -249,12 +249,12 @@ void IOThread::DrainAcceptedClients()
 void IOThread::DrainInbox()
 {
     for (auto& message : inbox_.Drain()) {
-        const auto client_fd = sessions_.FindClientFd(message.session.session_id);
-        if (!client_fd) {
+        const auto route_iterator = client_fd_by_session_.find(message.session.session_id);
+        if (route_iterator == client_fd_by_session_.end()) {
             continue;
         }
 
-        auto client_iterator = clients_.find(*client_fd);
+        auto client_iterator = clients_.find(route_iterator->second);
         if (client_iterator == clients_.end()) {
             continue;
         }
@@ -423,9 +423,7 @@ void IOThread::CloseClient(int client_fd)
     }
 
     Logger::Info("[IO] client closed fd={}", client_fd);
-    if (iterator->second.session) {
-        sessions_.Unbind(client_fd, iterator->second.session->session_id);
-    }
+    UnbindClientSession(iterator->second);
 
     iterator->second.dirty = false;
     if (epoll_fd_ >= 0) {
@@ -590,7 +588,7 @@ void IOThread::HandleLeave(ClientConnection& client)
 void IOThread::BindClientSession(ClientConnection& client, const Session& session)
 {
     client.session = session;
-    sessions_.Bind(client.fd, session.session_id);
+    client_fd_by_session_[session.session_id] = client.fd;
 }
 
 void IOThread::UnbindClientSession(ClientConnection& client)
@@ -599,7 +597,10 @@ void IOThread::UnbindClientSession(ClientConnection& client)
         return;
     }
 
-    sessions_.Unbind(client.fd, client.session->session_id);
+    const auto route_iterator = client_fd_by_session_.find(client.session->session_id);
+    if (route_iterator != client_fd_by_session_.end() && route_iterator->second == client.fd) {
+        client_fd_by_session_.erase(route_iterator);
+    }
     client.session = std::nullopt;
 }
 

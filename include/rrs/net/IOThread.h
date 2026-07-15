@@ -3,7 +3,6 @@
 #include "rrs/base/Types.h"
 #include "rrs/game/PlayerInput.h"
 #include "rrs/metrics/MetricsRegistry.h"
-#include "rrs/net/IoSessionRouter.h"
 #include "rrs/runtime/IoToWorkerMessage.h"
 #include "rrs/runtime/Mailbox.h"
 #include "rrs/runtime/RuntimeChannels.h"
@@ -92,7 +91,7 @@ private:
     IoInbox inbox_;
     std::size_t outbound_queue_limit_;
     SessionRegistry& session_registry_;
-    IoSessionRouter sessions_;
+    std::unordered_map<SessionId, int> client_fd_by_session_;
     std::vector<int> dirty_clients_;
     int epoll_fd_{-1};
     int wake_event_fd_{-1};

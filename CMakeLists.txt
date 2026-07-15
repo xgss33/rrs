@@ -21,7 +21,6 @@ add_executable(rrs
     src/runtime/WorkerToIoMessage.cpp
     src/net/Acceptor.cpp
     src/net/BinaryProtocol.cpp
-    src/net/IoSessionRouter.cpp
     src/net/IOThread.cpp
     src/runtime/SessionRegistry.cpp
     src/runtime/WorkerRoomRegistry.cpp
