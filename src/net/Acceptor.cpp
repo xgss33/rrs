@@ -18,14 +18,6 @@ Acceptor::Acceptor(std::uint16_t port, const std::vector<std::unique_ptr<IOThrea
     : port_(port)
     , io_threads_(io_threads)
 {
-    if (io_threads_.empty()) {
-        throw std::invalid_argument("Acceptor requires at least one IOThread");
-    }
-    for (const auto& io_thread : io_threads_) {
-        if (io_thread == nullptr) {
-            throw std::invalid_argument("Acceptor requires non-null IOThread targets");
-        }
-    }
 }
 
 Acceptor::~Acceptor()

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rrs/base/Types.h"
 #include "rrs/game/Room.h"
 #include "rrs/runtime/Session.h"
 

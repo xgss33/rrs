@@ -37,7 +37,9 @@ private:
     [[nodiscard]] static std::optional<ProcessCpuSample> ReadProcessCpuSample();
     [[nodiscard]] static std::uint64_t ReadProcessRssBytes();
     [[nodiscard]] static double CalculateCpuPercent(const ProcessCpuSample& previous, const ProcessCpuSample& current);
-    [[nodiscard]] static std::string FormatWorkerValues(const std::vector<WorkerTickMetrics>& metrics, bool use_max);
+    [[nodiscard]] static std::string FormatWorkerValues(
+        const std::vector<WorkerTickMetrics>& metrics,
+        bool format_window_max);
 
     MetricsRegistry& metrics_;
     std::chrono::seconds report_interval_;

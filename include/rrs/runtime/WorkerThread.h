@@ -46,7 +46,7 @@ private:
     void DrainInbox(Clock::time_point frame_time);
     void HandleJoin(const IoToWorkerMessage& message, Clock::time_point entered_at);
     void HandleReconnect(const IoToWorkerMessage& message, Clock::time_point entered_at);
-    void HandlePlayerInput(IoToWorkerMessage message, Clock::time_point entered_at);
+    void HandlePlayerInput(const IoToWorkerMessage& message, Clock::time_point entered_at);
     void HandleLeave(const IoToWorkerMessage& message, Clock::time_point entered_at);
     void TickDueRooms(Clock::time_point now);
     void HandleRoomTickResult(const Room& room, const Room::TickResult& result);
@@ -59,11 +59,11 @@ private:
                          const std::vector<SessionId>& excluded_sessions);
     void PushToIo(const Session& session, WorkerToIoMessage message);
 
-    WorkerInbox inbox_;  // 所有的io都向这里输入
-    std::vector<IoInboxSender> io_inboxes_;  // 向各个io输出
+    WorkerInbox inbox_;
+    std::vector<IoInboxSender> io_inboxes_;
     WorkerId worker_id_;
     std::uint32_t max_catch_up_ticks_;
-    WorkerRoomRegistry rooms_;  // 对拥有的房间以及操作房间的函数的封装, 为了减少worker文件大小, 提高可读
+    WorkerRoomRegistry rooms_;
     std::jthread thread_;
 
 private:

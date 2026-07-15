@@ -1,5 +1,6 @@
 #include "rrs/net/BinaryProtocol.h"
 
+#include "rrs/game/PlayerEntity.h"
 #include "rrs/game/RoomRules.h"
 #include "rrs/game/RoomSnapshot.h"
 
@@ -16,6 +17,15 @@ namespace {
 
 constexpr std::size_t kLengthFieldSize = 4;
 constexpr std::size_t kMessageTypeSize = 1;
+constexpr std::size_t kJoinPayloadSize = 8;
+constexpr std::size_t kReconnectPayloadSize = 8;
+constexpr std::size_t kInputPayloadSize = 5;
+constexpr std::size_t kLeavePayloadSize = 0;
+constexpr std::size_t kSessionPrefixSize = 16;
+constexpr std::size_t kSnapshotFixedPayloadSize = 13;
+constexpr std::size_t kSnapshotPlayerFixedSize = 10;
+constexpr std::size_t kSnapshotBallSize = 6;
+constexpr std::size_t kSnapshotFoodSize = 6;
 constexpr std::uint32_t kMaxFrameLength = 64 * 1024;
 constexpr float kEncodedPositionMin = -room_rules::kRoomHalfExtent;
 constexpr float kEncodedPositionMax = room_rules::kRoomHalfExtent;
@@ -125,51 +135,47 @@ BinaryFrameDecodeStatus TryDecodeBinaryFrame(std::string& buffer, BinaryFrame& o
     return BinaryFrameDecodeStatus::kComplete;
 }
 
-std::optional<BinaryJoinRequest> DecodeJoinRequest(const BinaryFrame& frame)
+std::optional<PlayerId> DecodeJoinRequest(const BinaryFrame& frame)
 {
-    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kJoin) || frame.payload.size() != 8) {
+    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kJoin)
+        || frame.payload.size() != kJoinPayloadSize) {
         return std::nullopt;
     }
 
-    return BinaryJoinRequest{
-        .player_id = PlayerId{ReadU64At(frame.payload, 0)},
-    };
+    return PlayerId{ReadU64At(frame.payload, 0)};
 }
 
-std::optional<BinaryReconnectRequest> DecodeReconnectRequest(const BinaryFrame& frame)
+std::optional<SessionId> DecodeReconnectRequest(const BinaryFrame& frame)
 {
-    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kReconnect) || frame.payload.size() != 8) {
+    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kReconnect)
+        || frame.payload.size() != kReconnectPayloadSize) {
         return std::nullopt;
     }
 
-    return BinaryReconnectRequest{
-        .session_id = SessionId{ReadU64At(frame.payload, 0)},
-    };
+    return SessionId{ReadU64At(frame.payload, 0)};
 }
 
-std::optional<BinaryInputRequest> DecodeInputRequest(const BinaryFrame& frame)
+std::optional<PlayerInput> DecodeInputRequest(const BinaryFrame& frame)
 {
-    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kInput) || frame.payload.size() != 5) {
+    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kInput)
+        || frame.payload.size() != kInputPayloadSize) {
         return std::nullopt;
     }
 
-    return BinaryInputRequest{
+    return PlayerInput{
         .move_x = ReadI16At(frame.payload, 0),
         .move_y = ReadI16At(frame.payload, 2),
         .input_flags = static_cast<std::uint8_t>(static_cast<unsigned char>(frame.payload[4])),
     };
 }
 
-std::optional<BinaryLeaveRequest> DecodeLeaveRequest(const BinaryFrame& frame)
+bool IsValidLeaveRequest(const BinaryFrame& frame)
 {
-    if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kLeave) || !frame.payload.empty()) {
-        return std::nullopt;
-    }
-
-    return BinaryLeaveRequest{};
+    return frame.message_type == static_cast<std::uint8_t>(ClientMessageType::kLeave)
+        && frame.payload.size() == kLeavePayloadSize;
 }
 
-std::string EncodeFrame(ServerMessageType message_type, const std::string& payload)
+std::string EncodeFrame(ServerMessageType message_type, std::string_view payload)
 {
     std::string output;
     const auto length = static_cast<std::uint32_t>(kMessageTypeSize + payload.size());
@@ -180,29 +186,14 @@ std::string EncodeFrame(ServerMessageType message_type, const std::string& paylo
     return output;
 }
 
-std::string EncodeJoinOkPayload(SessionId session_id, Generation generation, const std::string& snapshot_payload)
+std::string EncodeSessionPayload(SessionId session_id, Generation generation, std::string_view snapshot_payload)
 {
     std::string output;
-    output.reserve(16 + snapshot_payload.size());
+    output.reserve(kSessionPrefixSize + snapshot_payload.size());
     AppendU64(output, session_id.value());
     AppendU64(output, generation);
     output.append(snapshot_payload);
     return output;
-}
-
-std::string EncodeReconnectOkPayload(SessionId session_id, Generation generation, const std::string& snapshot_payload)
-{
-    std::string output;
-    output.reserve(16 + snapshot_payload.size());
-    AppendU64(output, session_id.value());
-    AppendU64(output, generation);
-    output.append(snapshot_payload);
-    return output;
-}
-
-std::string EncodeErrorPayload(const std::string& message)
-{
-    return message;
 }
 
 std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot)
@@ -210,9 +201,9 @@ std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot)
     std::string output;
     auto player_payload_size = std::size_t{0};
     for (const auto& player : snapshot.players) {
-        player_payload_size += 10 + 6 * std::popcount(player.active_ball_mask);
+        player_payload_size += kSnapshotPlayerFixedSize + kSnapshotBallSize * std::popcount(player.active_ball_mask);
     }
-    output.reserve(13 + player_payload_size + snapshot.foods.size() * 6);
+    output.reserve(kSnapshotFixedPayloadSize + player_payload_size + snapshot.foods.size() * kSnapshotFoodSize);
     AppendU16(output, static_cast<std::uint16_t>(snapshot.tick_seq));
     AppendU8(output, static_cast<std::uint8_t>(snapshot.players.size()));
     for (const auto& player : snapshot.players) {

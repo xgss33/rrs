@@ -43,7 +43,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
 {
     SetCurrentThreadName("rrs-metrics");
 
-    auto previous_snapshot = metrics_.CollectAndResetWindow();
+    auto previous_snapshot = metrics_.CollectSnapshotAndResetTickMaxima();
     auto previous_cpu_sample = ReadProcessCpuSample();
     auto previous_sample_time = std::chrono::steady_clock::now();
 
@@ -59,7 +59,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
         }
 
         const auto now = std::chrono::steady_clock::now();
-        const auto snapshot = metrics_.CollectAndResetWindow();
+        const auto snapshot = metrics_.CollectSnapshotAndResetTickMaxima();
         const auto elapsed = std::chrono::duration<double>(now - previous_sample_time).count();
         const auto bytes_in_per_sec = elapsed > 0.0
             ? static_cast<std::uint64_t>((snapshot.net_bytes_in_total - previous_snapshot.net_bytes_in_total) / elapsed)
@@ -146,9 +146,9 @@ std::optional<MetricsReporter::ProcessCpuSample> MetricsReporter::ReadProcessCpu
 std::uint64_t MetricsReporter::ReadProcessRssBytes()
 {
     auto statm_file = std::ifstream{"/proc/self/statm"};
-    std::uint64_t total_pages = 0;
+    std::uint64_t ignored_total_pages = 0;
     std::uint64_t resident_pages = 0;
-    statm_file >> total_pages >> resident_pages;
+    statm_file >> ignored_total_pages >> resident_pages;
 
     const auto page_size = ::sysconf(_SC_PAGESIZE);
     if (page_size <= 0) {
@@ -175,7 +175,9 @@ double MetricsReporter::CalculateCpuPercent(const ProcessCpuSample& previous, co
     return process_seconds / elapsed_seconds * 100.0;
 }
 
-std::string MetricsReporter::FormatWorkerValues(const std::vector<WorkerTickMetrics>& metrics, bool use_max)
+std::string MetricsReporter::FormatWorkerValues(
+    const std::vector<WorkerTickMetrics>& metrics,
+    bool format_window_max)
 {
     auto output = std::string{};
     for (const auto& metric : metrics) {
@@ -184,7 +186,7 @@ std::string MetricsReporter::FormatWorkerValues(const std::vector<WorkerTickMetr
         }
         output += std::to_string(metric.worker_id.value());
         output.push_back(':');
-        output += std::to_string(use_max ? metric.tick_cost_us_max_5s : metric.tick_cost_us_last);
+        output += std::to_string(format_window_max ? metric.tick_cost_us_max_5s : metric.tick_cost_us_last);
     }
     return output;
 }

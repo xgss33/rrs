@@ -10,7 +10,7 @@ WorkerToIoMessage WorkerToIoMessage::MakeJoinOk(Session session, const std::stri
 {
     auto frame = EncodeFrame(
         ServerMessageType::kJoinOk,
-        EncodeJoinOkPayload(session.session_id, session.generation, snapshot_payload));
+        EncodeSessionPayload(session.session_id, session.generation, snapshot_payload));
 
     return WorkerToIoMessage{
         .session = session,
@@ -22,7 +22,7 @@ WorkerToIoMessage WorkerToIoMessage::MakeReconnectOk(Session session, const std:
 {
     auto frame = EncodeFrame(
         ServerMessageType::kReconnectOk,
-        EncodeReconnectOkPayload(session.session_id, session.generation, snapshot_payload));
+        EncodeSessionPayload(session.session_id, session.generation, snapshot_payload));
 
     return WorkerToIoMessage{
         .session = session,
@@ -32,7 +32,7 @@ WorkerToIoMessage WorkerToIoMessage::MakeReconnectOk(Session session, const std:
 
 WorkerToIoMessage WorkerToIoMessage::MakeError(Session session, const std::string& error_message)
 {
-    auto frame = EncodeFrame(ServerMessageType::kError, EncodeErrorPayload(error_message));
+    auto frame = EncodeFrame(ServerMessageType::kError, error_message);
 
     return WorkerToIoMessage{
         .session = session,

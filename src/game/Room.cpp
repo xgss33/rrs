@@ -1,4 +1,6 @@
 #include "rrs/game/Room.h"
+
+#include "rrs/game/FoodEntity.h"
 #include "rrs/game/RoomRules.h"
 
 #include <algorithm>
@@ -71,12 +73,12 @@ Room::TickResult Room::Tick()
         SplitPlayers(player_inputs);
         MovePlayers();
         ResolveFoodCollisions();
-        ResolvePlayerCollisions();
+        ResolvePlayerBallEating();
         RespawnDuePlayers();
         UpdateMatchState();
     }
 
-    result.broadcast_snapshot = BuildDeltaSnapshot();
+    result.broadcast_snapshot = BuildBroadcastSnapshot();
     if (std::any_of(result.events.begin(), result.events.end(), [](const Event& event) {
             return event.type == EventType::kJoinAccepted || event.type == EventType::kReconnectAccepted;
         })) {
@@ -178,7 +180,7 @@ void Room::JoinPlayer(const Session& session, TickResult& result)
             .balls = {},
         };
         player.balls[0] = PlayerBall{
-            .position = FindRespawnPosition(),
+            .position = FindSpawnPosition(),
             .radius = room_rules::kInitialPlayerRadius,
         };
         players_.push_back(player);
@@ -201,21 +203,16 @@ void Room::ReconnectPlayer(const Session& session, TickResult& result)
 void Room::ApplyPlayerInputs(const std::vector<AggregatedPlayerInput>& inputs)
 {
     for (const auto& input : inputs) {
-        ApplyPlayerInput(input.player_id, input.input);
-    }
-}
+        auto* player = FindPlayer(input.player_id);
+        if (player == nullptr || !IsAlive(*player)) {
+            continue;
+        }
 
-void Room::ApplyPlayerInput(PlayerId player_id, const PlayerInput& input)
-{
-    auto* player = FindPlayer(player_id);
-    if (player == nullptr || !IsAlive(*player)) {
-        return;
+        player->input_direction = NormalizeOrZero(Vector2{
+            .x = static_cast<float>(input.input.move_x),
+            .y = static_cast<float>(input.input.move_y),
+        });
     }
-
-    player->input_direction = NormalizeOrZero(Vector2{
-        .x = static_cast<float>(input.move_x),
-        .y = static_cast<float>(input.move_y),
-    });
 }
 
 void Room::LeavePlayer(const Session& session, TickResult& result)
@@ -303,9 +300,8 @@ void Room::ResolveFoodCollisions()
             }
 
             auto& ball = player.balls[ball_index];
-            const auto query_radius = ball.radius + room_rules::kFoodRadius;
-            for (const auto food : foods_.Query(ball.position, query_radius)) {
-                const auto eat_distance = ball.radius + room_rules::kFoodRadius;
+            const auto eat_distance = ball.radius + room_rules::kFoodRadius;
+            for (const auto food : foods_.Query(ball.position, eat_distance)) {
                 if (DistanceSquared(ball.position, food.position) > eat_distance * eat_distance) {
                     continue;
                 }
@@ -332,7 +328,7 @@ void Room::MovePlayers()
             }
 
             auto& ball = player.balls[ball_index];
-            const auto speed = CalcSpeed(ball.radius);
+            const auto speed = CalculateBallSpeed(ball.radius);
             ball.position.x += player.input_direction.x * speed * delta_seconds;
             ball.position.y += player.input_direction.y * speed * delta_seconds;
             ClampBallPosition(ball);
@@ -340,7 +336,7 @@ void Room::MovePlayers()
     }
 }
 
-void Room::ResolvePlayerCollisions()
+void Room::ResolvePlayerBallEating()
 {
     for (std::size_t left_player_index = 0; left_player_index < players_.size(); ++left_player_index) {
         for (std::size_t left_ball_index = 0; left_ball_index < kMaxBallsPerPlayer; ++left_ball_index) {
@@ -378,10 +374,6 @@ void Room::TryEatBall(PlayerEntity& attacker,
                       PlayerEntity& victim,
                       std::size_t victim_ball_index)
 {
-    if (!IsBallActive(attacker, attacker_ball_index) || !IsBallActive(victim, victim_ball_index)) {
-        return;
-    }
-
     auto& attacker_ball = attacker.balls[attacker_ball_index];
     const auto& victim_ball = victim.balls[victim_ball_index];
     const auto radius_ok = attacker_ball.radius >= victim_ball.radius * room_rules::kEatRadiusRatio;
@@ -411,7 +403,7 @@ void Room::RespawnDuePlayers()
 
         player.input_direction = {};
         player.balls[0] = PlayerBall{
-            .position = FindRespawnPosition(),
+            .position = FindSpawnPosition(),
             .radius = room_rules::kInitialPlayerRadius,
         };
         player.active_ball_mask = BallMask(0);
@@ -447,31 +439,24 @@ void Room::UpdateMatchState()
     }
 }
 
-RoomSnapshot Room::BuildDeltaSnapshot()
+RoomSnapshot Room::BuildBroadcastSnapshot()
 {
-    RoomSnapshot snapshot{
-        .tick_seq = tick_seq_,
-        .players = {},
-        .foods = {},
-        .winner_player_id = match_over_ ? winner_player_id_ : PlayerId{},
-    };
-    snapshot.players.reserve(players_.size());
+    auto snapshot = BuildSnapshotWithPlayers();
     snapshot.foods.reserve(foods_.dirty_count());
-
-    for (const auto& player : players_) {
-        snapshot.players.push_back(PlayerStateSnapshot{
-            .player_id = player.player_id,
-            .active_ball_mask = player.active_ball_mask,
-            .balls = player.balls,
-        });
-    }
-
     foods_.AppendDeltaSnapshot(snapshot.foods);
     return snapshot;
 }
 
 RoomSnapshot Room::BuildFullSnapshot() const
 {
+    auto snapshot = BuildSnapshotWithPlayers();
+    snapshot.foods.reserve(foods_.food_count());
+    foods_.AppendFullSnapshot(snapshot.foods);
+    return snapshot;
+}
+
+RoomSnapshot Room::BuildSnapshotWithPlayers() const
+{
     RoomSnapshot snapshot{
         .tick_seq = tick_seq_,
         .players = {},
@@ -479,7 +464,6 @@ RoomSnapshot Room::BuildFullSnapshot() const
         .winner_player_id = match_over_ ? winner_player_id_ : PlayerId{},
     };
     snapshot.players.reserve(players_.size());
-    snapshot.foods.reserve(foods_.food_count());
 
     for (const auto& player : players_) {
         snapshot.players.push_back(PlayerStateSnapshot{
@@ -488,19 +472,17 @@ RoomSnapshot Room::BuildFullSnapshot() const
             .balls = player.balls,
         });
     }
-
-    foods_.AppendFullSnapshot(snapshot.foods);
     return snapshot;
 }
 
-float Room::CalcSpeed(float radius) const
+float Room::CalculateBallSpeed(float radius) const
 {
     const auto ratio = room_rules::kSpeedReferenceRadius / radius;
     const auto speed = room_rules::kBaseSpeed * std::pow(ratio, room_rules::kSpeedRadiusExponent);
     return std::clamp(speed, room_rules::kMinSpeed, room_rules::kMaxSpeed);
 }
 
-Vector2 Room::FindRespawnPosition()
+Vector2 Room::FindSpawnPosition()
 {
     std::uniform_real_distribution<float> distribution{
         -room_rules::kRoomHalfExtent + room_rules::kInitialPlayerRadius,
@@ -555,15 +537,6 @@ Vector2 Room::FindRespawnPosition()
 }
 
 PlayerEntity* Room::FindPlayer(PlayerId player_id)
-{
-    const auto iterator = std::find_if(players_.begin(), players_.end(), [player_id](const PlayerEntity& player) {
-        return player.player_id == player_id;
-    });
-
-    return iterator != players_.end() ? &(*iterator) : nullptr;
-}
-
-const PlayerEntity* Room::FindPlayer(PlayerId player_id) const
 {
     const auto iterator = std::find_if(players_.begin(), players_.end(), [player_id](const PlayerEntity& player) {
         return player.player_id == player_id;

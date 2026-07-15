@@ -4,11 +4,11 @@
 #include <cstddef>
 
 namespace rrs::room_rules {
-// TODO: 这里需要调整命名和依赖关系, 不能让格子限制房间长宽
-inline constexpr float kCellSize = 64.0F;       // 每个格子的边长
-inline constexpr std::size_t kGridSize = 32;    // xy方向上格子的数量
-inline constexpr std::size_t kCellCount = kGridSize * kGridSize;    // 总的格子数量是32*32 = 1024
-inline constexpr float kRoomHalfExtent = kCellSize * static_cast<float>(kGridSize) * 0.5F;  // 房间边长的一半 64 * 32 / 2 = 1024
+inline constexpr float kRoomHalfExtent = 1024.0F;
+
+inline constexpr float kFoodCellSize = 64.0F;
+inline constexpr std::size_t kFoodGridSideCellCount = 32;
+inline constexpr std::size_t kFoodCellCount = kFoodGridSideCellCount * kFoodGridSideCellCount;
 
 inline constexpr float kInitialPlayerRadius = 12.0F;
 inline constexpr float kFoodRadius = 4.0F;

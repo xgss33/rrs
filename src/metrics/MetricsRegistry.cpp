@@ -6,12 +6,12 @@ namespace rrs {
 
 MetricsRegistry::MetricsRegistry(std::size_t worker_count)
     : worker_tick_cost_us_last_(worker_count)
-    , worker_tick_cost_us_max_5s_(worker_count)
+    , worker_tick_cost_us_window_max_(worker_count)
 {
     for (auto& value : worker_tick_cost_us_last_) {
         value.store(0, std::memory_order_relaxed);
     }
-    for (auto& value : worker_tick_cost_us_max_5s_) {
+    for (auto& value : worker_tick_cost_us_window_max_) {
         value.store(0, std::memory_order_relaxed);
     }
 }
@@ -59,9 +59,9 @@ void MetricsRegistry::SetWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost
 
     worker_tick_cost_us_last_[worker_index].store(cost_us, std::memory_order_relaxed);
 
-    auto max_cost = worker_tick_cost_us_max_5s_[worker_index].load(std::memory_order_relaxed);
+    auto max_cost = worker_tick_cost_us_window_max_[worker_index].load(std::memory_order_relaxed);
     while (cost_us > max_cost
-           && !worker_tick_cost_us_max_5s_[worker_index].compare_exchange_weak(
+           && !worker_tick_cost_us_window_max_[worker_index].compare_exchange_weak(
                max_cost,
                cost_us,
                std::memory_order_relaxed,
@@ -69,7 +69,7 @@ void MetricsRegistry::SetWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost
     }
 }
 
-MetricsSnapshot MetricsRegistry::CollectAndResetWindow()
+MetricsSnapshot MetricsRegistry::CollectSnapshotAndResetTickMaxima()
 {
     auto snapshot = MetricsSnapshot{
         .net_connections_current = net_connections_current_.load(std::memory_order_relaxed),
@@ -88,7 +88,7 @@ MetricsSnapshot MetricsRegistry::CollectAndResetWindow()
         snapshot.worker_tick_metrics.push_back(WorkerTickMetrics{
             .worker_id = WorkerId{index},
             .tick_cost_us_last = worker_tick_cost_us_last_[index].load(std::memory_order_relaxed),
-            .tick_cost_us_max_5s = worker_tick_cost_us_max_5s_[index].exchange(0, std::memory_order_relaxed),
+            .tick_cost_us_max_5s = worker_tick_cost_us_window_max_[index].exchange(0, std::memory_order_relaxed),
         });
     }
 

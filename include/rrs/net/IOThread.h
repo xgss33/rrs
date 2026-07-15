@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rrs/base/Types.h"
+#include "rrs/game/PlayerInput.h"
 #include "rrs/metrics/MetricsRegistry.h"
 #include "rrs/net/IoSessionRouter.h"
 #include "rrs/runtime/IoToWorkerMessage.h"
@@ -84,6 +85,7 @@ private:
     [[nodiscard]] bool IsCurrentClientSession(const ClientConnection& client, const Session& session) const;
     [[nodiscard]] WorkerId SelectWorkerForJoin(PlayerId player_id) const;
     [[nodiscard]] bool PushToWorker(WorkerId worker_id, IoToWorkerMessage message);
+    void PublishSendMetrics();
 
     IoThreadId io_thread_id_;
     std::vector<WorkerInboxSender> worker_inboxes_;
@@ -97,9 +99,6 @@ private:
     Mailbox<int> accepted_clients_;
     std::unordered_map<int, ClientConnection> clients_;
     std::jthread thread_;
-
-private:
-    void PublishSendMetrics();
     MetricsRegistry& metrics_;
     IoSendMetrics pending_send_metrics_;
 };

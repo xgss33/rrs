@@ -45,7 +45,7 @@ public:
     void MergeIoSendMetrics(const IoSendMetrics& metrics) noexcept;
     void SetWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost_us) noexcept;
 
-    [[nodiscard]] MetricsSnapshot CollectAndResetWindow();
+    [[nodiscard]] MetricsSnapshot CollectSnapshotAndResetTickMaxima();
 
 private:
     std::atomic<std::uint64_t> net_connections_current_{0};
@@ -55,7 +55,7 @@ private:
     std::atomic<std::uint64_t> io_nonempty_flushes_{0};
     std::atomic<std::uint64_t> io_frames_at_flush_{0};
     std::vector<std::atomic<std::uint64_t>> worker_tick_cost_us_last_;
-    std::vector<std::atomic<std::uint64_t>> worker_tick_cost_us_max_5s_;
+    std::vector<std::atomic<std::uint64_t>> worker_tick_cost_us_window_max_;
 };
 
 } // namespace rrs

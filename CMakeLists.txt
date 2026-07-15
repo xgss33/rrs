@@ -18,7 +18,6 @@ add_executable(rrs
     src/log/Logger.cpp
     src/metrics/MetricsRegistry.cpp
     src/metrics/MetricsReporter.cpp
-    src/runtime/IoToWorkerMessage.cpp
     src/runtime/WorkerToIoMessage.cpp
     src/net/Acceptor.cpp
     src/net/BinaryProtocol.cpp

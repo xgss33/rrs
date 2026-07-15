@@ -1,10 +1,12 @@
 #pragma once
 
 #include "rrs/base/Types.h"
+#include "rrs/game/PlayerInput.h"
 
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace rrs {
 
@@ -35,34 +37,15 @@ enum class BinaryFrameDecodeStatus {
     kInvalid,
 };
 
-struct BinaryJoinRequest {
-    PlayerId player_id;
-};
-
-struct BinaryReconnectRequest {
-    SessionId session_id;
-};
-
-struct BinaryInputRequest {
-    std::int16_t move_x{0};
-    std::int16_t move_y{0};
-    std::uint8_t input_flags{0};
-};
-
-struct BinaryLeaveRequest {
-};
-
 [[nodiscard]] BinaryFrameDecodeStatus TryDecodeBinaryFrame(std::string& buffer, BinaryFrame& output);
 
-[[nodiscard]] std::optional<BinaryJoinRequest> DecodeJoinRequest(const BinaryFrame& frame);
-[[nodiscard]] std::optional<BinaryReconnectRequest> DecodeReconnectRequest(const BinaryFrame& frame);
-[[nodiscard]] std::optional<BinaryInputRequest> DecodeInputRequest(const BinaryFrame& frame);
-[[nodiscard]] std::optional<BinaryLeaveRequest> DecodeLeaveRequest(const BinaryFrame& frame);
+[[nodiscard]] std::optional<PlayerId> DecodeJoinRequest(const BinaryFrame& frame);
+[[nodiscard]] std::optional<SessionId> DecodeReconnectRequest(const BinaryFrame& frame);
+[[nodiscard]] std::optional<PlayerInput> DecodeInputRequest(const BinaryFrame& frame);
+[[nodiscard]] bool IsValidLeaveRequest(const BinaryFrame& frame);
 
-[[nodiscard]] std::string EncodeFrame(ServerMessageType message_type, const std::string& payload);
-[[nodiscard]] std::string EncodeJoinOkPayload(SessionId session_id, Generation generation, const std::string& snapshot_payload);
-[[nodiscard]] std::string EncodeReconnectOkPayload(SessionId session_id, Generation generation, const std::string& snapshot_payload);
-[[nodiscard]] std::string EncodeErrorPayload(const std::string& message);
+[[nodiscard]] std::string EncodeFrame(ServerMessageType message_type, std::string_view payload);
+[[nodiscard]] std::string EncodeSessionPayload(SessionId session_id, Generation generation, std::string_view snapshot_payload);
 [[nodiscard]] std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot);
 
 } // namespace rrs

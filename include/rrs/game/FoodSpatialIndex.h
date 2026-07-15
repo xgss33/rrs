@@ -3,7 +3,6 @@
 #include "rrs/base/Types.h"
 #include "rrs/game/FoodEntity.h"
 #include "rrs/game/MathTypes.h"
-#include "rrs/game/RoomSnapshot.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -22,8 +21,8 @@ public:
     [[nodiscard]] std::size_t dirty_count() const noexcept { return dirty_food_indices_.size(); }
     [[nodiscard]] std::span<const FoodEntity> Query(Vector2 center, float radius);
 
-    void AppendFullSnapshot(std::vector<FoodStateSnapshot>& output) const;
-    void AppendDeltaSnapshot(std::vector<FoodStateSnapshot>& output);
+    void AppendFullSnapshot(std::vector<FoodEntity>& output) const;
+    void AppendDeltaSnapshot(std::vector<FoodEntity>& output);
 
 private:
     struct Cell {

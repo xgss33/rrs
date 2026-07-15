@@ -9,7 +9,7 @@ namespace rrs {
 void FoodSpatialIndex::Reset(std::size_t food_count)
 {
     cells_.clear();
-    cells_.resize(room_rules::kCellCount);
+    cells_.resize(room_rules::kFoodCellCount);
 
     food_slots_.clear();
     food_slots_.resize(food_count);
@@ -88,22 +88,22 @@ std::span<const FoodEntity> FoodSpatialIndex::Query(Vector2 center, float radius
     return query_results_;
 }
 
-void FoodSpatialIndex::AppendFullSnapshot(std::vector<FoodStateSnapshot>& output) const
+void FoodSpatialIndex::AppendFullSnapshot(std::vector<FoodEntity>& output) const
 {
     for (std::size_t food_index = 0; food_index < food_slots_.size(); ++food_index) {
         const auto& food = FoodByIndex(food_index);
-        output.push_back(FoodStateSnapshot{
+        output.push_back(FoodEntity{
             .food_id = food.food_id,
             .position = food.position,
         });
     }
 }
 
-void FoodSpatialIndex::AppendDeltaSnapshot(std::vector<FoodStateSnapshot>& output)
+void FoodSpatialIndex::AppendDeltaSnapshot(std::vector<FoodEntity>& output)
 {
     for (const auto food_index : dirty_food_indices_) {
         const auto& food = FoodByIndex(food_index);
-        output.push_back(FoodStateSnapshot{
+        output.push_back(FoodEntity{
             .food_id = food.food_id,
             .position = food.position,
         });
@@ -120,11 +120,11 @@ std::size_t FoodSpatialIndex::FoodIndex(FoodId food_id) noexcept
 
 std::size_t FoodSpatialIndex::CellCoordForPosition(float value) noexcept
 {
-    const auto normalized = (value + room_rules::kRoomHalfExtent) / room_rules::kCellSize;
+    const auto normalized = (value + room_rules::kRoomHalfExtent) / room_rules::kFoodCellSize;
     const auto coord = std::clamp(
         static_cast<int>(std::floor(normalized)),
         0,
-        static_cast<int>(room_rules::kGridSize - 1));
+        static_cast<int>(room_rules::kFoodGridSideCellCount - 1));
     return static_cast<std::size_t>(coord);
 }
 
@@ -137,7 +137,7 @@ std::size_t FoodSpatialIndex::CellIndexForPosition(Vector2 position) noexcept
 
 std::size_t FoodSpatialIndex::CellIndexForCoord(std::size_t x, std::size_t y) noexcept
 {
-    return y * room_rules::kGridSize + x;
+    return y * room_rules::kFoodGridSideCellCount + x;
 }
 
 } // namespace rrs

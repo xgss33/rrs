@@ -1,7 +1,7 @@
 #pragma once
 
 #include "rrs/base/Types.h"
-#include "rrs/game/MathTypes.h"
+#include "rrs/game/FoodEntity.h"
 #include "rrs/game/PlayerEntity.h"
 
 #include <array>
@@ -16,15 +16,10 @@ struct PlayerStateSnapshot {
     std::array<PlayerBall, kMaxBallsPerPlayer> balls{};
 };
 
-struct FoodStateSnapshot {
-    FoodId food_id;
-    Vector2 position;
-};
-
 struct RoomSnapshot {
     TickSeq tick_seq{0};
     std::vector<PlayerStateSnapshot> players;
-    std::vector<FoodStateSnapshot> foods;
+    std::vector<FoodEntity> foods;
     PlayerId winner_player_id;
 };
 

@@ -4,6 +4,7 @@
 #include "rrs/net/IOThread.h"
 #include "rrs/metrics/MetricsRegistry.h"
 #include "rrs/metrics/MetricsReporter.h"
+#include "rrs/runtime/RuntimeChannels.h"
 #include "rrs/runtime/WorkerThread.h"
 #include "rrs/runtime/SessionRegistry.h"
 #include "rrs/log/Logger.h"
@@ -12,9 +13,7 @@
 #include <csignal>
 #include <cstdint>
 #include <exception>
-#include <format>
 #include <memory>
-#include <string>
 #include <thread>
 #include <vector>
 

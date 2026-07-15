@@ -14,15 +14,6 @@
 
 namespace rrs {
 
-namespace {
-
-[[nodiscard]] bool ContainsSessionId(const std::vector<SessionId>& session_ids, SessionId session_id)
-{
-    return std::find(session_ids.begin(), session_ids.end(), session_id) != session_ids.end();
-}
-
-} // namespace
-
 WorkerThread::WorkerThread(WorkerId worker_id,
                            std::chrono::nanoseconds tick_interval,
                            std::uint32_t max_catch_up_ticks,
@@ -89,7 +80,7 @@ void WorkerThread::DrainInbox(Clock::time_point frame_time)
             HandleReconnect(message, frame_time);
             break;
         case IoToWorkerMessageType::kPlayerInput:
-            HandlePlayerInput(std::move(message), frame_time);
+            HandlePlayerInput(message, frame_time);
             break;
         case IoToWorkerMessageType::kLeave:
             HandleLeave(message, frame_time);
@@ -148,7 +139,7 @@ void WorkerThread::HandleReconnect(const IoToWorkerMessage& message, Clock::time
                  session.generation);
 }
 
-void WorkerThread::HandlePlayerInput(IoToWorkerMessage message, Clock::time_point entered_at)
+void WorkerThread::HandlePlayerInput(const IoToWorkerMessage& message, Clock::time_point entered_at)
 {
     const auto& session = message.session;
     const auto* binding = rooms_.FindBinding(session.session_id);
@@ -267,7 +258,7 @@ void WorkerThread::PublishSnapshot(RoomId room_id,
                                    const std::vector<SessionId>& excluded_sessions)
 {
     rooms_.ForEachActiveSessionInRoom(room_id, [this, &encoded_snapshot_frame, &excluded_sessions](const Session& session) {
-        if (ContainsSessionId(excluded_sessions, session.session_id)) {
+        if (std::find(excluded_sessions.begin(), excluded_sessions.end(), session.session_id) != excluded_sessions.end()) {
             return;
         }
 

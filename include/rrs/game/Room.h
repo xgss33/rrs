@@ -3,9 +3,9 @@
 #include "rrs/base/Types.h"
 #include "rrs/game/FoodSpatialIndex.h"
 #include "rrs/game/MathTypes.h"
+#include "rrs/game/PlayerInput.h"
 #include "rrs/game/PlayerEntity.h"
 #include "rrs/game/RoomSnapshot.h"
-#include "rrs/runtime/IoToWorkerMessage.h"
 #include "rrs/runtime/Session.h"
 
 #include <chrono>
@@ -74,14 +74,13 @@ private:
     void JoinPlayer(const Session& session, TickResult& result);
     void ReconnectPlayer(const Session& session, TickResult& result);
     void ApplyPlayerInputs(const std::vector<AggregatedPlayerInput>& inputs);
-    void ApplyPlayerInput(PlayerId player_id, const PlayerInput& input);
     void LeavePlayer(const Session& session, TickResult& result);
 
     void SplitPlayers(const std::vector<AggregatedPlayerInput>& inputs);
     void SplitPlayer(PlayerEntity& player);
     void MovePlayers();
     void ResolveFoodCollisions();
-    void ResolvePlayerCollisions();
+    void ResolvePlayerBallEating();
     void TryEatBall(PlayerEntity& attacker,
                     std::size_t attacker_ball_index,
                     PlayerEntity& victim,
@@ -89,13 +88,13 @@ private:
     void RespawnDuePlayers();
     void UpdateMatchState();
 
-    [[nodiscard]] RoomSnapshot BuildDeltaSnapshot();
+    [[nodiscard]] RoomSnapshot BuildBroadcastSnapshot();
     [[nodiscard]] RoomSnapshot BuildFullSnapshot() const;
+    [[nodiscard]] RoomSnapshot BuildSnapshotWithPlayers() const;
 
-    [[nodiscard]] float CalcSpeed(float radius) const;
-    [[nodiscard]] Vector2 FindRespawnPosition();
+    [[nodiscard]] float CalculateBallSpeed(float radius) const;
+    [[nodiscard]] Vector2 FindSpawnPosition();
     [[nodiscard]] PlayerEntity* FindPlayer(PlayerId player_id);
-    [[nodiscard]] const PlayerEntity* FindPlayer(PlayerId player_id) const;
 
     RoomId room_id_;
     TickSeq tick_seq_{0};
