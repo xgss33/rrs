@@ -24,7 +24,7 @@ public:
 
     [[nodiscard]] RoomId id() const noexcept { return room_id_; }
     [[nodiscard]] Clock::time_point next_tick_time() const noexcept { return next_tick_time_; }
-    [[nodiscard]] std::size_t entity_count() const noexcept { return players_.size(); }
+    [[nodiscard]] std::size_t player_count() const noexcept { return players_.size(); }
 
     enum class CommandType {
         kJoin,

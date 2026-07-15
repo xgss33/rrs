@@ -14,7 +14,6 @@
 namespace rrs {
 
 struct WorkerSessionBinding {
-    SessionId session_id;
     Generation generation{1};
     PlayerId player_id;
     IoThreadId io_thread_id;
@@ -31,22 +30,19 @@ public:
     [[nodiscard]] Room* FindRoom(RoomId room_id);
     [[nodiscard]] Room& AssignRoomForJoin();
     [[nodiscard]] const WorkerSessionBinding* FindBinding(SessionId session_id) const;
-    [[nodiscard]] Session MakeSession(const WorkerSessionBinding& binding) const;
+    [[nodiscard]] Session MakeSession(SessionId session_id, const WorkerSessionBinding& binding) const;
     [[nodiscard]] Room::Clock::time_point NextWakeTime(Room::Clock::time_point fallback) const;
 
     template <typename HandleSession>
     void ForEachActiveSessionInRoom(RoomId room_id, HandleSession handle_session) const
     {
-        const auto session_ids_iterator = active_session_ids_by_room_.find(room_id);
-        if (session_ids_iterator == active_session_ids_by_room_.end()) {
+        const auto room_iterator = rooms_.find(room_id);
+        if (room_iterator == rooms_.end()) {
             return;
         }
 
-        for (const auto session_id : session_ids_iterator->second) {
-            const auto* binding = FindBinding(session_id);
-            if (binding != nullptr && binding->active && binding->room_id == room_id) {
-                handle_session(MakeSession(*binding));
-            }
+        for (const auto session_id : room_iterator->second.active_session_ids) {
+            handle_session(MakeSession(session_id, session_bindings_.at(session_id)));
         }
     }
 
@@ -55,7 +51,7 @@ public:
     {
         auto room_iterator = rooms_.begin();
         while (room_iterator != rooms_.end()) {
-            auto& room = room_iterator->second;
+            auto& room = room_iterator->second.room;
             const auto room_id = room_iterator->first;
             std::uint32_t catch_up_count = 0;
             bool room_erased = false;
@@ -91,20 +87,21 @@ public:
 private:
     using Clock = std::chrono::steady_clock;
 
+    struct RoomState {
+        Room room;
+        std::vector<SessionId> active_session_ids;
+        std::size_t session_count{0};
+    };
+
     [[nodiscard]] Room& CreateRoom();
     [[nodiscard]] WorkerSessionBinding* FindMutableBinding(SessionId session_id);
-    [[nodiscard]] std::size_t SessionCountForRoom(RoomId room_id) const;
-    void RemoveActiveSessionFromRoom(RoomId room_id, SessionId session_id);
-    void RemoveOpenRoom(RoomId room_id);
 
     WorkerId worker_id_;
     std::chrono::nanoseconds tick_interval_;
     std::size_t room_capacity_;
-    std::map<RoomId, Room> rooms_;
+    std::map<RoomId, RoomState> rooms_;
     std::vector<RoomId> open_room_ids_;
     std::unordered_map<SessionId, WorkerSessionBinding> session_bindings_;
-    std::unordered_map<RoomId, std::vector<SessionId>> active_session_ids_by_room_;
-    std::unordered_map<RoomId, std::size_t> session_count_by_room_;
     RoomId::ValueType next_local_room_id_{1};
 };
 
