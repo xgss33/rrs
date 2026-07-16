@@ -6,6 +6,7 @@ out/
 # Runtime local files
 logs/
 tmp/
+docs/
 
 # Local profiling scratch
 perf.data*
