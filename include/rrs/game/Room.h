@@ -2,10 +2,10 @@
 
 #include "rrs/base/Types.h"
 #include "rrs/game/FoodSpatialIndex.h"
-#include "rrs/game/MathTypes.h"
 #include "rrs/game/PlayerInput.h"
 #include "rrs/game/PlayerEntity.h"
 #include "rrs/game/RoomSnapshot.h"
+#include "rrs/math/Vector2.h"
 #include "rrs/runtime/Session.h"
 
 #include <chrono>

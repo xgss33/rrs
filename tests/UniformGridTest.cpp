@@ -10,12 +10,15 @@
 
 namespace {
 
-constexpr rrs::Aabb kRoomBounds{
-    .min_x = -1024.0F,
-    .min_y = -1024.0F,
-    .max_x = 1024.0F,
-    .max_y = 1024.0F,
-};
+constexpr rrs::Aabb MakeAabb(float min_x, float min_y, float max_x, float max_y)
+{
+    return rrs::Aabb{
+        .min = rrs::Vector2{.x = min_x, .y = min_y},
+        .max = rrs::Vector2{.x = max_x, .y = max_y},
+    };
+}
+
+constexpr auto kRoomBounds = MakeAabb(-1024.0F, -1024.0F, 1024.0F, 1024.0F);
 
 void Expect(bool condition, std::string_view message)
 {
@@ -45,60 +48,28 @@ rrs::UniformGridLayout MakeLayout()
 void TestCellRangeMapping()
 {
     const auto layout = MakeLayout();
-    Expect(layout.column_count() == 32, "layout column count");
-    Expect(layout.row_count() == 32, "layout row count");
     Expect(layout.cell_count() == 1024, "layout cell count");
 
-    const auto single_cell = layout.CellRangeForBounds({
-        .min_x = -1000.0F,
-        .min_y = -1000.0F,
-        .max_x = -990.0F,
-        .max_y = -990.0F,
-    });
+    const auto single_cell = layout.CellRangeForBounds(MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F));
     Expect(single_cell == rrs::GridCellRange{{0, 0}, {0, 0}}, "single-cell AABB mapping");
 
-    const auto crossing = layout.CellRangeForBounds({
-        .min_x = -970.0F,
-        .min_y = -970.0F,
-        .max_x = -950.0F,
-        .max_y = -950.0F,
-    });
+    const auto crossing = layout.CellRangeForBounds(MakeAabb(-970.0F, -970.0F, -950.0F, -950.0F));
     Expect(crossing == rrs::GridCellRange{{0, 0}, {1, 1}}, "cross-cell AABB mapping");
 
-    const auto closed_boundary = layout.CellRangeForBounds({
-        .min_x = -1000.0F,
-        .min_y = -1000.0F,
-        .max_x = -960.0F,
-        .max_y = -960.0F,
-    });
+    const auto closed_boundary = layout.CellRangeForBounds(MakeAabb(-1000.0F, -1000.0F, -960.0F, -960.0F));
     Expect(closed_boundary == rrs::GridCellRange{{0, 0}, {1, 1}}, "closed AABB boundary mapping");
 }
 
 void TestRoomEdgeClipping()
 {
     const auto layout = MakeLayout();
-    const auto lower_edge = layout.CellRangeForBounds({
-        .min_x = -1100.0F,
-        .min_y = -1100.0F,
-        .max_x = -1000.0F,
-        .max_y = -1000.0F,
-    });
+    const auto lower_edge = layout.CellRangeForBounds(MakeAabb(-1100.0F, -1100.0F, -1000.0F, -1000.0F));
     Expect(lower_edge == rrs::GridCellRange{{0, 0}, {0, 0}}, "lower room edge clipping");
 
-    const auto upper_edge = layout.CellRangeForBounds({
-        .min_x = 1000.0F,
-        .min_y = 1000.0F,
-        .max_x = 1100.0F,
-        .max_y = 1100.0F,
-    });
+    const auto upper_edge = layout.CellRangeForBounds(MakeAabb(1000.0F, 1000.0F, 1100.0F, 1100.0F));
     Expect(upper_edge == rrs::GridCellRange{{31, 31}, {31, 31}}, "upper room edge clipping");
 
-    const auto outside = layout.CellRangeForBounds({
-        .min_x = 1100.0F,
-        .min_y = 1100.0F,
-        .max_x = 1200.0F,
-        .max_y = 1200.0F,
-    });
+    const auto outside = layout.CellRangeForBounds(MakeAabb(1100.0F, 1100.0F, 1200.0F, 1200.0F));
     Expect(!outside.has_value(), "fully outside AABB exclusion");
 }
 
@@ -106,16 +77,20 @@ void TestStableRecordOrder()
 {
     rrs::UniformGridIndex grid{MakeLayout()};
     const std::array records{
-        rrs::Aabb{-1000.0F, -1000.0F, -990.0F, -990.0F},
-        rrs::Aabb{-970.0F, -1000.0F, -950.0F, -990.0F},
-        rrs::Aabb{-1005.0F, -1000.0F, -995.0F, -990.0F},
+        MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
+        MakeAabb(-970.0F, -1000.0F, -950.0F, -990.0F),
+        MakeAabb(-1005.0F, -1000.0F, -995.0F, -990.0F),
     };
 
     grid.Rebuild(records);
 
-    ExpectIndices(grid.RecordIndicesInCell({0, 0}), std::array<std::uint32_t, 3>{0, 1, 2},
+    ExpectIndices(
+        grid.QueryCandidates(MakeAabb(-1020.0F, -1020.0F, -961.0F, -961.0F)),
+        std::array<std::uint32_t, 3>{0, 1, 2},
         "stable record order in first cell");
-    ExpectIndices(grid.RecordIndicesInCell({1, 0}), std::array<std::uint32_t, 1>{1},
+    ExpectIndices(
+        grid.QueryCandidates(MakeAabb(-959.0F, -1020.0F, -900.0F, -961.0F)),
+        std::array<std::uint32_t, 1>{1},
         "multi-cell record reference");
     Expect(grid.spatial_reference_count() == 4, "spatial reference count");
 }
@@ -124,17 +99,21 @@ void TestRebuildReplacesOldIndex()
 {
     rrs::UniformGridIndex grid{MakeLayout()};
     const std::array first_records{
-        rrs::Aabb{-1000.0F, -1000.0F, -990.0F, -990.0F},
+        MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
     };
     grid.Rebuild(first_records);
 
     const std::array second_records{
-        rrs::Aabb{1000.0F, 1000.0F, 1010.0F, 1010.0F},
+        MakeAabb(1000.0F, 1000.0F, 1010.0F, 1010.0F),
     };
     grid.Rebuild(second_records);
 
-    Expect(grid.RecordIndicesInCell({0, 0}).empty(), "rebuild clears old cell references");
-    ExpectIndices(grid.RecordIndicesInCell({31, 31}), std::array<std::uint32_t, 1>{0},
+    Expect(
+        grid.QueryCandidates(MakeAabb(-1020.0F, -1020.0F, -970.0F, -970.0F)).empty(),
+        "rebuild clears old cell references");
+    ExpectIndices(
+        grid.QueryCandidates(MakeAabb(1000.0F, 1000.0F, 1010.0F, 1010.0F)),
+        std::array<std::uint32_t, 1>{0},
         "rebuild writes new cell references");
 }
 
@@ -142,21 +121,48 @@ void TestDeterministicRebuild()
 {
     rrs::UniformGridIndex grid{MakeLayout()};
     const std::array records{
-        rrs::Aabb{-970.0F, -970.0F, -950.0F, -950.0F},
-        rrs::Aabb{-1000.0F, -1000.0F, -990.0F, -990.0F},
-        rrs::Aabb{-965.0F, -965.0F, -955.0F, -955.0F},
+        MakeAabb(-970.0F, -970.0F, -950.0F, -950.0F),
+        MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
+        MakeAabb(-965.0F, -965.0F, -955.0F, -955.0F),
     };
     grid.Rebuild(records);
 
-    const auto first_span = grid.RecordIndicesInCell({0, 0});
+    const auto first_span = grid.QueryCandidates(MakeAabb(-1020.0F, -1020.0F, -961.0F, -961.0F));
     const auto first_result = std::vector<std::uint32_t>{
         first_span.begin(),
         first_span.end(),
     };
     grid.Rebuild(records);
-    const auto second_result = grid.RecordIndicesInCell({0, 0});
+    const auto second_result = grid.QueryCandidates(MakeAabb(-1020.0F, -1020.0F, -961.0F, -961.0F));
 
     Expect(std::ranges::equal(first_result, second_result), "deterministic rebuild output");
+}
+
+void TestCandidateQueries()
+{
+    rrs::UniformGridIndex grid{MakeLayout()};
+    const std::array records{
+        MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
+        MakeAabb(-950.0F, -1000.0F, -940.0F, -990.0F),
+        MakeAabb(-970.0F, -1000.0F, -950.0F, -990.0F),
+    };
+    grid.Rebuild(records);
+
+    ExpectIndices(
+        grid.QueryCandidates(MakeAabb(-1020.0F, -1020.0F, -961.0F, -961.0F)),
+        std::array<std::uint32_t, 2>{0, 2},
+        "first cell candidate query");
+    ExpectIndices(
+        grid.QueryCandidates(MakeAabb(-959.0F, -1020.0F, -900.0F, -961.0F)),
+        std::array<std::uint32_t, 2>{1, 2},
+        "consecutive candidate query");
+    ExpectIndices(
+        grid.QueryCandidates(MakeAabb(-1020.0F, -1020.0F, -900.0F, -961.0F)),
+        std::array<std::uint32_t, 3>{0, 2, 1},
+        "multi-cell candidate deduplication");
+    Expect(
+        grid.QueryCandidates(MakeAabb(1100.0F, 1100.0F, 1200.0F, 1200.0F)).empty(),
+        "outside candidate query");
 }
 
 } // namespace
@@ -168,6 +174,7 @@ int main()
     TestStableRecordOrder();
     TestRebuildReplacesOldIndex();
     TestDeterministicRebuild();
+    TestCandidateQueries();
     std::cout << "UniformGrid tests passed\n";
     return EXIT_SUCCESS;
 }

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "rrs/base/Types.h"
-#include "rrs/game/MathTypes.h"
+#include "rrs/math/Vector2.h"
 
 namespace rrs {
 
