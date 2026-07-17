@@ -5,12 +5,14 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
 namespace rrs {
 
 struct SnapshotUpdate;
+struct FoodSnapshotUpdate;
 
 enum class ClientMessageType : std::uint8_t {
     kJoin = 1,
@@ -46,6 +48,8 @@ enum class BinaryFrameDecodeStatus {
 
 [[nodiscard]] std::string EncodeFrame(ServerMessageType message_type, std::string_view payload);
 [[nodiscard]] std::string EncodeSessionPayload(SessionId session_id, Generation generation, std::string_view snapshot_payload);
-[[nodiscard]] std::string EncodeSnapshotPayload(const SnapshotUpdate& update);
+[[nodiscard]] std::string EncodeSnapshotPayload(
+    const SnapshotUpdate& update,
+    std::span<const FoodSnapshotUpdate> food_updates);
 
 } // namespace rrs

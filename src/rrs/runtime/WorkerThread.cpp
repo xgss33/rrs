@@ -245,14 +245,14 @@ void WorkerThread::HandleRoomTickResult(const Room& room, const Room::TickResult
     excluded_sessions.reserve(result.events.size());
 
     for (const auto& event : result.events) {
-        HandleRoomEvent(room_id, result.snapshot_updates, event, excluded_sessions);
+        HandleRoomEvent(room_id, result, event, excluded_sessions);
     }
 
-    PublishSnapshotUpdates(room_id, result.snapshot_updates, excluded_sessions);
+    PublishSnapshotUpdates(room_id, result, excluded_sessions);
 }
 
 void WorkerThread::HandleRoomEvent(RoomId room_id,
-                                   const std::vector<Room::ObserverSnapshotUpdate>& snapshot_updates,
+                                   const Room::TickResult& result,
                                    const Room::Event& event,
                                    std::vector<SessionId>& excluded_sessions)
 {
@@ -260,17 +260,25 @@ void WorkerThread::HandleRoomEvent(RoomId room_id,
     case Room::EventType::kJoinAccepted: {
         rooms_.ActivateSession(event.session.session_id);
         rooms_.UpdateRoomOpenState(room_id);
-        const auto* update = FindSnapshotUpdate(snapshot_updates, event.session.player_id);
+        const auto* update = FindSnapshotUpdate(result.snapshot_updates, event.session.player_id);
         if (update != nullptr) {
-            PushToIo(event.session, WorkerToIoMessage::MakeJoinOk(event.session, EncodeSnapshotPayload(*update)));
+            PushToIo(
+                event.session,
+                WorkerToIoMessage::MakeJoinOk(
+                    event.session,
+                    EncodeSnapshotPayload(*update, result.food_baseline)));
         }
         excluded_sessions.push_back(event.session.session_id);
         return;
     }
     case Room::EventType::kReconnectAccepted: {
-        const auto* update = FindSnapshotUpdate(snapshot_updates, event.session.player_id);
+        const auto* update = FindSnapshotUpdate(result.snapshot_updates, event.session.player_id);
         if (update != nullptr) {
-            PushToIo(event.session, WorkerToIoMessage::MakeReconnectOk(event.session, EncodeSnapshotPayload(*update)));
+            PushToIo(
+                event.session,
+                WorkerToIoMessage::MakeReconnectOk(
+                    event.session,
+                    EncodeSnapshotPayload(*update, result.food_baseline)));
         }
         excluded_sessions.push_back(event.session.session_id);
         return;
@@ -289,20 +297,21 @@ void WorkerThread::HandleRoomEvent(RoomId room_id,
 
 void WorkerThread::PublishSnapshotUpdates(
     RoomId room_id,
-    const std::vector<Room::ObserverSnapshotUpdate>& snapshot_updates,
+    const Room::TickResult& result,
     const std::vector<SessionId>& excluded_sessions)
 {
-    rooms_.ForEachActiveSessionInRoom(room_id, [this, &snapshot_updates, &excluded_sessions](const Session& session) {
+    rooms_.ForEachActiveSessionInRoom(room_id, [this, &result, &excluded_sessions](const Session& session) {
         if (std::find(excluded_sessions.begin(), excluded_sessions.end(), session.session_id) != excluded_sessions.end()) {
             return;
         }
 
-        const auto* update = FindSnapshotUpdate(snapshot_updates, session.player_id);
+        const auto* update = FindSnapshotUpdate(result.snapshot_updates, session.player_id);
         if (update == nullptr) {
             return;
         }
+        const auto& food_updates = update->full_reset ? result.food_baseline : result.food_updates;
         auto encoded_frame = std::make_shared<const std::string>(
-            EncodeFrame(ServerMessageType::kSnapshot, EncodeSnapshotPayload(*update)));
+            EncodeFrame(ServerMessageType::kSnapshot, EncodeSnapshotPayload(*update, food_updates)));
         PushToIo(session, WorkerToIoMessage{
                               .session = session,
                               .encoded_frame = std::move(encoded_frame),

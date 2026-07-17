@@ -10,6 +10,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -110,14 +111,13 @@ void TestSnapshotByteLayout()
         .full_reset = true,
         .player_updates = {player},
         .removed_player_ids = {rrs::PlayerId{0x1112131415161718ULL}},
-        .food_updates = {
-            rrs::FoodSnapshotUpdate{
-                .food_id = rrs::FoodId{5},
-                .position = rrs::QuantizedPosition{.x = -3, .y = 0x2345},
-            },
-        },
-        .removed_food_ids = {rrs::FoodId{6}},
         .winner_player_id = rrs::PlayerId{0x2122232425262728ULL},
+    };
+    const auto food_updates = std::vector{
+        rrs::FoodSnapshotUpdate{
+            .food_index = 0,
+            .position = rrs::QuantizedPosition{.x = -3, .y = 0x2345},
+        },
     };
 
     auto expected = std::string{};
@@ -133,14 +133,12 @@ void TestSnapshotByteLayout()
     AppendU8(expected, 1);
     AppendU64(expected, 0x1112131415161718ULL);
     AppendU16(expected, 1);
-    AppendU16(expected, 5);
+    AppendU16(expected, 0);
     AppendU16(expected, static_cast<std::uint16_t>(-3));
     AppendU16(expected, 0x2345);
-    AppendU16(expected, 1);
-    AppendU16(expected, 6);
     AppendU64(expected, 0x2122232425262728ULL);
 
-    Expect(rrs::EncodeSnapshotPayload(update) == expected, "Snapshot update byte layout is exact");
+    Expect(rrs::EncodeSnapshotPayload(update, food_updates) == expected, "Snapshot update byte layout is exact");
 }
 
 void TestFrameLayout()

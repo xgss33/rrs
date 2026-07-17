@@ -20,7 +20,7 @@ constexpr std::size_t kReconnectPayloadSize = 8;
 constexpr std::size_t kInputPayloadSize = 5;
 constexpr std::size_t kLeavePayloadSize = 0;
 constexpr std::size_t kSessionPrefixSize = 16;
-constexpr std::size_t kSnapshotFixedPayloadSize = 9;
+constexpr std::size_t kSnapshotFixedPayloadSize = 7;
 constexpr std::size_t kSnapshotPlayerFixedSize = 12;
 constexpr std::size_t kSnapshotBallSize = 6;
 constexpr std::size_t kSnapshotFoodSize = 6;
@@ -176,7 +176,9 @@ std::string EncodeSessionPayload(SessionId session_id, Generation generation, st
     return output;
 }
 
-std::string EncodeSnapshotPayload(const SnapshotUpdate& update)
+std::string EncodeSnapshotPayload(
+    const SnapshotUpdate& update,
+    std::span<const FoodSnapshotUpdate> food_updates)
 {
     std::string output;
     auto player_payload_size = std::size_t{0};
@@ -187,8 +189,7 @@ std::string EncodeSnapshotPayload(const SnapshotUpdate& update)
         kSnapshotFixedPayloadSize
         + player_payload_size
         + update.removed_player_ids.size() * sizeof(std::uint64_t)
-        + update.food_updates.size() * kSnapshotFoodSize
-        + update.removed_food_ids.size() * sizeof(std::uint16_t)
+        + food_updates.size() * kSnapshotFoodSize
         + (update.winner_player_id.has_value() ? sizeof(std::uint64_t) : 0));
 
     AppendU16(output, static_cast<std::uint16_t>(update.tick_seq));
@@ -224,16 +225,11 @@ std::string EncodeSnapshotPayload(const SnapshotUpdate& update)
         AppendU64(output, player_id.value());
     }
 
-    AppendU16(output, static_cast<std::uint16_t>(update.food_updates.size()));
-    for (const auto& food : update.food_updates) {
-        AppendU16(output, static_cast<std::uint16_t>(food.food_id.value()));
+    AppendU16(output, static_cast<std::uint16_t>(food_updates.size()));
+    for (const auto& food : food_updates) {
+        AppendU16(output, food.food_index);
         AppendI16(output, food.position.x);
         AppendI16(output, food.position.y);
-    }
-
-    AppendU16(output, static_cast<std::uint16_t>(update.removed_food_ids.size()));
-    for (const auto food_id : update.removed_food_ids) {
-        AppendU16(output, static_cast<std::uint16_t>(food_id.value()));
     }
 
     if (update.winner_player_id) {

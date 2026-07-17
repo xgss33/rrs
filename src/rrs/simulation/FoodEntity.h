@@ -1,12 +1,14 @@
 #pragma once
 
-#include "rrs/core/Identifiers.h"
 #include "rrs/math/Vector2.h"
+
+#include <cstdint>
 
 namespace rrs {
 
+using FoodIndex = std::uint16_t;
+
 struct FoodEntity {
-    FoodId food_id;
     Vector2 position;
 };
 

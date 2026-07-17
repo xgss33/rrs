@@ -49,11 +49,11 @@ private:
     void TickDueRooms(Clock::time_point now);
     void HandleRoomTickResult(const Room& room, const Room::TickResult& result);
     void HandleRoomEvent(RoomId room_id,
-                         const std::vector<Room::ObserverSnapshotUpdate>& snapshot_updates,
+                         const Room::TickResult& result,
                          const Room::Event& event,
                          std::vector<SessionId>& excluded_sessions);
     void PublishSnapshotUpdates(RoomId room_id,
-                                const std::vector<Room::ObserverSnapshotUpdate>& snapshot_updates,
+                                const Room::TickResult& result,
                                 const std::vector<SessionId>& excluded_sessions);
     void PushToIo(const Session& session, WorkerToIoMessage message);
 

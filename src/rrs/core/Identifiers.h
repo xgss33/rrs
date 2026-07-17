@@ -26,14 +26,12 @@ private:
 
 struct RoomIdTag;
 struct PlayerIdTag;
-struct FoodIdTag;
 struct SessionIdTag;
 struct WorkerIdTag;
 struct IoThreadIdTag;
 
 using RoomId = StrongId<RoomIdTag>;
 using PlayerId = StrongId<PlayerIdTag>;
-using FoodId = StrongId<FoodIdTag>;
 using SessionId = StrongId<SessionIdTag>;
 using WorkerId = StrongId<WorkerIdTag>;
 using IoThreadId = StrongId<IoThreadIdTag>;

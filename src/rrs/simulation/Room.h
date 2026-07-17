@@ -64,6 +64,8 @@ public:
 
     struct TickResult {
         std::vector<ObserverSnapshotUpdate> snapshot_updates;
+        std::vector<FoodSnapshotUpdate> food_updates;
+        std::vector<FoodSnapshotUpdate> food_baseline;
         std::vector<Event> events;
     };
 
@@ -91,7 +93,7 @@ private:
     void SplitPlayers(const std::vector<AggregatedPlayerInput>& inputs);
     void SplitPlayer(PlayerEntity& player);
     void MovePlayers();
-    void ResolveFoodEating();
+    void ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates);
     void ResolvePlayerBallEating();
     [[nodiscard]] bool TryEatPlayerBall(PlayerEntity& attacker,
                                         std::size_t attacker_ball_index,
@@ -100,7 +102,10 @@ private:
     void RespawnDuePlayers();
     void UpdateMatchState();
 
-    [[nodiscard]] std::vector<ObserverSnapshotUpdate> BuildSnapshotUpdates(const std::vector<Event>& events);
+    [[nodiscard]] std::vector<ObserverSnapshotUpdate> BuildSnapshotUpdates(
+        const std::vector<Event>& events,
+        bool has_food_updates);
+    [[nodiscard]] std::vector<FoodSnapshotUpdate> BuildFoodBaseline() const;
 
     float CalculateBallSpeed(float radius) const;
     Vector2 FindSpawnPosition();

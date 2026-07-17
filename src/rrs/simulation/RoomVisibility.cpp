@@ -2,10 +2,8 @@
 
 #include "rrs/core/Identifiers.h"
 #include "rrs/math/Vector2.h"
-#include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/RoomRules.h"
-#include "rrs/simulation/spatial/FoodSpatialIndex.h"
 #include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 
 #include <algorithm>
@@ -35,12 +33,6 @@ bool WasPlayerBallVisible(const VisibleEntitySet* previous, PlayerId player_id, 
         && (iterator->ball_mask & static_cast<std::uint16_t>(1U << ball_index)) != 0;
 }
 
-bool WasFoodVisible(const VisibleEntitySet* previous, FoodId food_id)
-{
-    return previous != nullptr
-        && std::binary_search(previous->food_ids.begin(), previous->food_ids.end(), food_id);
-}
-
 bool IsVisibleFromBall(
     const PlayerBall& observer_ball,
     Vector2 target_position,
@@ -56,9 +48,7 @@ bool IsVisibleFromBall(
 const VisibleEntitySet& RoomVisibility::Update(
     std::size_t observer_player_index,
     std::span<const PlayerEntity> players,
-    std::span<const FoodEntity> foods,
-    PlayerBallSpatialIndex& player_ball_spatial_index,
-    FoodSpatialIndex& food_spatial_index)
+    PlayerBallSpatialIndex& player_ball_spatial_index)
 {
     const auto& observer = players[observer_player_index];
     const auto previous_iterator = visible_entities_by_observer_.find(observer.player_id);
@@ -67,7 +57,6 @@ const VisibleEntitySet& RoomVisibility::Update(
         : nullptr;
 
     visible_ball_masks_.assign(players.size(), 0);
-    visible_food_flags_.assign(foods.size(), 0);
     visible_ball_masks_[observer_player_index] = observer.active_ball_mask;
 
     for (std::size_t observer_ball_index = 0; observer_ball_index < kMaxBallsPerPlayer; ++observer_ball_index) {
@@ -100,15 +89,6 @@ const VisibleEntitySet& RoomVisibility::Update(
             }
         }
 
-        for (const auto food_index : food_spatial_index.QueryCandidates(observer_ball.position, query_radius)) {
-            const auto& food = foods[food_index];
-            const auto visibility_distance = WasFoodVisible(previous, food.food_id)
-                ? room_rules::kAoiLeaveDistance
-                : room_rules::kAoiEnterDistance;
-            if (IsVisibleFromBall(observer_ball, food.position, room_rules::kFoodRadius, visibility_distance)) {
-                visible_food_flags_[food_index] = 1;
-            }
-        }
     }
 
     auto next = VisibleEntitySet{};
@@ -125,14 +105,6 @@ const VisibleEntitySet& RoomVisibility::Update(
     std::sort(next.players.begin(), next.players.end(), [](const VisiblePlayerBalls& left, const VisiblePlayerBalls& right) {
         return left.player_id < right.player_id;
     });
-
-    next.food_ids.reserve(foods.size());
-    for (std::size_t food_index = 0; food_index < foods.size(); ++food_index) {
-        if (visible_food_flags_[food_index] != 0) {
-            next.food_ids.push_back(foods[food_index].food_id);
-        }
-    }
-    std::sort(next.food_ids.begin(), next.food_ids.end());
 
     auto iterator = visible_entities_by_observer_.find(observer.player_id);
     if (iterator == visible_entities_by_observer_.end()) {

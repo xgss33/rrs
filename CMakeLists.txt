@@ -38,6 +38,7 @@ add_executable(rrs
     src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
     src/rrs/simulation/Room.cpp
     src/rrs/synchronization/SnapshotDeltaTracker.cpp
+    src/rrs/synchronization/SnapshotUpdate.cpp
 )
 
 target_include_directories(rrs
@@ -90,7 +91,6 @@ if (BUILD_TESTING)
     add_executable(RoomVisibilityTest
         tests/simulation/RoomVisibilityTest.cpp
         src/rrs/simulation/RoomVisibility.cpp
-        src/rrs/simulation/spatial/FoodSpatialIndex.cpp
         src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
     )
 
@@ -104,9 +104,30 @@ if (BUILD_TESTING)
 
     add_test(NAME RoomVisibilityTest COMMAND RoomVisibilityTest)
 
+    add_executable(RoomFoodSynchronizationTest
+        tests/simulation/RoomFoodSynchronizationTest.cpp
+        src/rrs/simulation/Room.cpp
+        src/rrs/simulation/RoomVisibility.cpp
+        src/rrs/simulation/spatial/FoodSpatialIndex.cpp
+        src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
+        src/rrs/synchronization/SnapshotDeltaTracker.cpp
+        src/rrs/synchronization/SnapshotUpdate.cpp
+    )
+
+    target_link_libraries(RoomFoodSynchronizationTest PRIVATE rrs_spatial)
+
+    if (MSVC)
+        target_compile_options(RoomFoodSynchronizationTest PRIVATE /W4)
+    else()
+        target_compile_options(RoomFoodSynchronizationTest PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_test(NAME RoomFoodSynchronizationTest COMMAND RoomFoodSynchronizationTest)
+
     add_executable(SnapshotDeltaTrackerTest
         tests/synchronization/SnapshotDeltaTrackerTest.cpp
         src/rrs/synchronization/SnapshotDeltaTracker.cpp
+        src/rrs/synchronization/SnapshotUpdate.cpp
     )
 
     if (MSVC)

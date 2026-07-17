@@ -48,6 +48,14 @@ bool RequiresFullSnapshot(const std::vector<Room::Event>& events, PlayerId playe
     });
 }
 
+FoodSnapshotUpdate MakeFoodSnapshotUpdate(std::size_t food_index, const FoodEntity& food)
+{
+    return FoodSnapshotUpdate{
+        .food_index = static_cast<FoodIndex>(food_index),
+        .position = QuantizeSnapshotPosition(food.position),
+    };
+}
+
 } // namespace
 
 void Room::ClampBallPosition(PlayerBall& ball)
@@ -113,15 +121,20 @@ Room::TickResult Room::Tick()
     if (!match_over_) {
         SplitPlayers(player_inputs);
         MovePlayers();
-        ResolveFoodEating();
+        ResolveFoodEating(result.food_updates);
         ResolvePlayerBallEating();
         RespawnDuePlayers();
         UpdateMatchState();
     }
 
     player_ball_spatial_index_.Rebuild(players_);
-    food_spatial_index_.Rebuild(foods_);
-    result.snapshot_updates = BuildSnapshotUpdates(result.events);
+    result.snapshot_updates = BuildSnapshotUpdates(result.events, !result.food_updates.empty());
+    if (std::any_of(
+            result.snapshot_updates.begin(),
+            result.snapshot_updates.end(),
+            [](const ObserverSnapshotUpdate& update) { return update.update.full_reset; })) {
+        result.food_baseline = BuildFoodBaseline();
+    }
 
     next_tick_time_ += tick_interval_;
     return result;
@@ -139,7 +152,6 @@ void Room::InitializeFoods()
 
     for (std::size_t food_index = 0; food_index < room_rules::kFoodCount; ++food_index) {
         foods_.push_back(FoodEntity{
-            .food_id = FoodId{food_index + 1},
             .position = Vector2{
                 .x = distribution(rng_),
                 .y = distribution(rng_),
@@ -327,7 +339,7 @@ void Room::SplitPlayer(PlayerEntity& player)
     }
 }
 
-void Room::ResolveFoodEating()
+void Room::ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates)
 {
     food_spatial_index_.Rebuild(foods_);
 
@@ -371,6 +383,7 @@ void Room::ResolveFoodEating()
             .x = food_position_distribution(rng_),
             .y = food_position_distribution(rng_),
         };
+        food_updates.push_back(MakeFoodSnapshotUpdate(food_index, foods_[food_index]));
     }
 }
 
@@ -518,7 +531,9 @@ void Room::UpdateMatchState()
     }
 }
 
-std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(const std::vector<Event>& events)
+std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(
+    const std::vector<Event>& events,
+    bool has_food_updates)
 {
     auto updates = std::vector<ObserverSnapshotUpdate>{};
     updates.reserve(players_.size());
@@ -529,17 +544,23 @@ std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(const std::
         const auto& visible_entities = room_visibility_.Update(
             observer_player_index,
             players_,
-            foods_,
-            player_ball_spatial_index_,
-            food_spatial_index_);
+            player_ball_spatial_index_);
         auto update = snapshot_delta_tracker_.BuildUpdate(
             observer_player_id,
             tick_seq_,
             visible_entities,
             players_,
-            foods_,
             winner,
             RequiresFullSnapshot(events, observer_player_id));
+        if (!update && has_food_updates) {
+            update = SnapshotUpdate{
+                .tick_seq = tick_seq_,
+                .full_reset = false,
+                .player_updates = {},
+                .removed_player_ids = {},
+                .winner_player_id = std::nullopt,
+            };
+        }
         if (update) {
             updates.push_back(ObserverSnapshotUpdate{
                 .observer_player_id = observer_player_id,
@@ -548,6 +569,16 @@ std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(const std::
         }
     }
     return updates;
+}
+
+std::vector<FoodSnapshotUpdate> Room::BuildFoodBaseline() const
+{
+    auto baseline = std::vector<FoodSnapshotUpdate>{};
+    baseline.reserve(foods_.size());
+    for (std::size_t food_index = 0; food_index < foods_.size(); ++food_index) {
+        baseline.push_back(MakeFoodSnapshotUpdate(food_index, foods_[food_index]));
+    }
+    return baseline;
 }
 
 float Room::CalculateBallSpeed(float radius) const

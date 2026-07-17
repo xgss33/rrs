@@ -1,6 +1,8 @@
 #pragma once
 
 #include "rrs/core/Identifiers.h"
+#include "rrs/math/Vector2.h"
+#include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/PlayerEntity.h"
 
 #include <array>
@@ -32,7 +34,7 @@ struct PlayerSnapshotUpdate {
 };
 
 struct FoodSnapshotUpdate {
-    FoodId food_id;
+    FoodIndex food_index{0};
     QuantizedPosition position;
 
     friend bool operator==(const FoodSnapshotUpdate&, const FoodSnapshotUpdate&) = default;
@@ -43,9 +45,10 @@ struct SnapshotUpdate {
     bool full_reset{false};
     std::vector<PlayerSnapshotUpdate> player_updates;
     std::vector<PlayerId> removed_player_ids;
-    std::vector<FoodSnapshotUpdate> food_updates;
-    std::vector<FoodId> removed_food_ids;
     std::optional<PlayerId> winner_player_id;
 };
+
+QuantizedPosition QuantizeSnapshotPosition(Vector2 position);
+QuantizedBallState QuantizeSnapshotBall(const PlayerBall& ball);
 
 } // namespace rrs
