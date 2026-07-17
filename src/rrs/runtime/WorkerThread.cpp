@@ -224,11 +224,18 @@ void WorkerThread::HandleLeave(const IoToWorkerMessage& message, Clock::time_poi
 void WorkerThread::TickDueRooms(Clock::time_point now)
 {
     const auto tick_start = Clock::now();
-    rooms_.TickDueRooms(now, max_catch_up_ticks_, [this](const Room& room, const Room::TickResult& result) {
+    auto room_ticked = false;
+    rooms_.TickDueRooms(now, max_catch_up_ticks_, [this, &room_ticked](const Room& room, const Room::TickResult& result) {
+        room_ticked = true;
         HandleRoomTickResult(room, result);
     });
     const auto tick_cost = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - tick_start).count();
-    metrics_.SetWorkerTickCostUs(worker_id_, static_cast<std::uint64_t>(std::max<std::int64_t>(0, tick_cost)));
+    metrics_.RecordWorkerTickCostUs(worker_id_, static_cast<std::uint64_t>(std::max<std::int64_t>(0, tick_cost)));
+
+    if (room_ticked) {
+        const auto counts = rooms_.CollectEntityCounts();
+        metrics_.SetWorkerEntityCounts(worker_id_, counts.static_entities, counts.dynamic_entities);
+    }
 }
 
 void WorkerThread::HandleRoomTickResult(const Room& room, const Room::TickResult& result)

@@ -184,4 +184,14 @@ Room& WorkerRoomRegistry::CreateRoom()
     return iterator->second.room;
 }
 
+WorkerEntityCounts WorkerRoomRegistry::CollectEntityCounts() const
+{
+    auto counts = WorkerEntityCounts{};
+    for (const auto& [_, room_state] : rooms_) {
+        counts.static_entities += room_state.room.static_entity_count();
+        counts.dynamic_entities += room_state.room.dynamic_entity_count();
+    }
+    return counts;
+}
+
 } // namespace rrs

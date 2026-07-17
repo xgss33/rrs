@@ -21,6 +21,12 @@ struct WorkerSessionBinding {
     bool active{false};
 };
 
+// 只用于指标采集
+struct WorkerEntityCounts {
+    std::size_t static_entities{0};
+    std::size_t dynamic_entities{0};
+};
+
 class WorkerRoomRegistry {
 public:
     WorkerRoomRegistry(WorkerId worker_id,
@@ -103,6 +109,9 @@ private:
     std::vector<RoomId> open_room_ids_;
     std::unordered_map<SessionId, WorkerSessionBinding> session_bindings_;
     RoomId::ValueType next_local_room_id_{1};
+
+public:
+    WorkerEntityCounts CollectEntityCounts() const;
 };
 
 } // namespace rrs

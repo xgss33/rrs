@@ -122,6 +122,10 @@ private:
     RoomVisibility room_visibility_;
     SnapshotDeltaTracker snapshot_delta_tracker_;
     std::vector<Command> pending_commands_;
+
+public:
+    std::size_t static_entity_count() const { return foods_.size(); }
+    std::size_t dynamic_entity_count() const { return player_ball_spatial_index_.indexed_ball_count(); }
 };
 
 } // namespace rrs

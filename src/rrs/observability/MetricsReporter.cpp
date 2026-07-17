@@ -92,9 +92,7 @@ double CalculateCpuPercent(const ProcessCpuSample& previous, const ProcessCpuSam
     return process_seconds / elapsed_seconds * 100.0;
 }
 
-std::string FormatWorkerValues(
-    const std::vector<WorkerTickMetrics>& metrics,
-    bool format_window_max)
+std::string FormatWorkerTickCosts(const std::vector<WorkerTickMetrics>& metrics)
 {
     auto output = std::string{};
     for (const auto& metric : metrics) {
@@ -103,7 +101,7 @@ std::string FormatWorkerValues(
         }
         output += std::to_string(metric.worker_id.value());
         output.push_back(':');
-        output += std::to_string(format_window_max ? metric.tick_cost_us_max_5s : metric.tick_cost_us_last);
+        output += std::to_string(metric.tick_cost_us_max_5s);
     }
     return output;
 }
@@ -186,7 +184,8 @@ void MetricsReporter::Run(std::stop_token stop_token)
             "[Metrics] rrs_net_connections_current={} rrs_net_bytes_in_per_sec={} rrs_net_bytes_out_per_sec={} "
             "rrs_net_send_calls_per_sec={} rrs_net_avg_frames_per_flush={:.2f} "
             "rrs_process_cpu_percent={:.2f} rrs_process_memory_rss_bytes={} "
-            "rrs_worker_tick_cost_us_last={} rrs_worker_tick_cost_us_max_5s={}",
+            "rrs_static_entities_current={} rrs_dynamic_entities_current={} "
+            "rrs_worker_tick_cost_us_max_5s={}",
             snapshot.net_connections_current,
             bytes_in_per_sec,
             bytes_out_per_sec,
@@ -194,8 +193,9 @@ void MetricsReporter::Run(std::stop_token stop_token)
             avg_frames_per_flush,
             cpu_percent,
             rss_bytes,
-            FormatWorkerValues(snapshot.worker_tick_metrics, false),
-            FormatWorkerValues(snapshot.worker_tick_metrics, true));
+            snapshot.static_entities_current,
+            snapshot.dynamic_entities_current,
+            FormatWorkerTickCosts(snapshot.worker_tick_metrics));
 
         previous_snapshot = snapshot;
         previous_cpu_sample = current_cpu_sample;

@@ -11,7 +11,6 @@ namespace rrs {
 
 struct WorkerTickMetrics {
     WorkerId worker_id;
-    std::uint64_t tick_cost_us_last{0};
     std::uint64_t tick_cost_us_max_5s{0};
 };
 
@@ -25,6 +24,8 @@ struct MetricsSnapshot {
     std::uint64_t net_connections_current{0};
     std::uint64_t net_bytes_in_total{0};
     std::uint64_t net_bytes_out_total{0};
+    std::uint64_t static_entities_current{0};
+    std::uint64_t dynamic_entities_current{0};
     IoSendMetrics io_send_metrics;
     std::vector<WorkerTickMetrics> worker_tick_metrics;
 };
@@ -43,7 +44,10 @@ public:
     void OnBytesRead(std::uint64_t byte_count) noexcept;
     void OnBytesWritten(std::uint64_t byte_count) noexcept;
     void MergeIoSendMetrics(const IoSendMetrics& metrics) noexcept;
-    void SetWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost_us) noexcept;
+    void RecordWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost_us) noexcept;
+    void SetWorkerEntityCounts(WorkerId worker_id,
+                               std::uint64_t static_entities,
+                               std::uint64_t dynamic_entities) noexcept;
 
     [[nodiscard]] MetricsSnapshot CollectSnapshotAndResetTickMaxima();
 
@@ -54,8 +58,9 @@ private:
     std::atomic<std::uint64_t> io_send_calls_{0};
     std::atomic<std::uint64_t> io_nonempty_flushes_{0};
     std::atomic<std::uint64_t> io_frames_at_flush_{0};
-    std::vector<std::atomic<std::uint64_t>> worker_tick_cost_us_last_;
     std::vector<std::atomic<std::uint64_t>> worker_tick_cost_us_window_max_;
+    std::vector<std::atomic<std::uint64_t>> worker_static_entities_;
+    std::vector<std::atomic<std::uint64_t>> worker_dynamic_entities_;
 };
 
 } // namespace rrs

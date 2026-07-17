@@ -27,6 +27,9 @@ private:
     std::vector<Aabb> ball_bounds_;
     std::vector<PlayerBallLocator> ball_locators_;
     std::vector<PlayerBallLocator> candidate_ball_locators_;
+
+public:
+    std::size_t indexed_ball_count() const { return ball_locators_.size(); }
 };
 
 } // namespace rrs
