@@ -6,6 +6,15 @@
 
 namespace rrs {
 
+Aabb AabbForCircle(Vector2 center, float radius)
+{
+    const auto extent = Vector2{.x = radius, .y = radius};
+    return Aabb{
+        .min = center - extent,
+        .max = center + extent,
+    };
+}
+
 UniformGridLayout::UniformGridLayout(Aabb bounds, float cell_size)
     : bounds_(bounds),
       cell_size_(cell_size),

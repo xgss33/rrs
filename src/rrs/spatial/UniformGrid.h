@@ -15,6 +15,8 @@ struct Aabb {
     Vector2 max;
 };
 
+Aabb AabbForCircle(Vector2 center, float radius);
+
 // 二维单元格坐标, 左下角为00, 实际访问转换为1维下标
 struct GridCellCoord {
     std::uint32_t x{0};

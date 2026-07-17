@@ -4,19 +4,6 @@
 
 namespace rrs {
 
-namespace {
-
-Aabb AabbForCircle(Vector2 center, float radius)
-{
-    const auto extent = Vector2{.x = radius, .y = radius};
-    return Aabb{
-        .min = center - extent,
-        .max = center + extent,
-    };
-}
-
-} // namespace
-
 FoodSpatialIndex::FoodSpatialIndex(UniformGridLayout layout)
     : grid_(layout)
 {

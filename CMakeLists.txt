@@ -34,6 +34,7 @@ add_executable(rrs
     src/rrs/runtime/WorkerRoomRegistry.cpp
     src/rrs/runtime/WorkerThread.cpp
     src/rrs/simulation/spatial/FoodSpatialIndex.cpp
+    src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
     src/rrs/simulation/Room.cpp
 )
 
@@ -68,4 +69,19 @@ if (BUILD_TESTING)
     endif()
 
     add_test(NAME UniformGridTest COMMAND UniformGridTest)
+
+    add_executable(PlayerBallSpatialIndexTest
+        tests/simulation/spatial/PlayerBallSpatialIndexTest.cpp
+        src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
+    )
+
+    target_link_libraries(PlayerBallSpatialIndexTest PRIVATE rrs_spatial)
+
+    if (MSVC)
+        target_compile_options(PlayerBallSpatialIndexTest PRIVATE /W4)
+    else()
+        target_compile_options(PlayerBallSpatialIndexTest PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_test(NAME PlayerBallSpatialIndexTest COMMAND PlayerBallSpatialIndexTest)
 endif()

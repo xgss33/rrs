@@ -3,6 +3,7 @@
 #include "rrs/core/Identifiers.h"
 #include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/spatial/FoodSpatialIndex.h"
+#include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 #include "rrs/simulation/PlayerInput.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/RoomSnapshot.h"
@@ -83,10 +84,10 @@ private:
     void MovePlayers();
     void ResolveFoodEating();
     void ResolvePlayerBallEating();
-    void TryEatBall(PlayerEntity& attacker,
-                    std::size_t attacker_ball_index,
-                    PlayerEntity& victim,
-                    std::size_t victim_ball_index);
+    [[nodiscard]] bool TryEatPlayerBall(PlayerEntity& attacker,
+                                        std::size_t attacker_ball_index,
+                                        PlayerEntity& victim,
+                                        std::size_t victim_ball_index);
     void RespawnDuePlayers();
     void UpdateMatchState();
 
@@ -110,6 +111,7 @@ private:
     std::vector<PlayerEntity> players_;
     std::vector<FoodEntity> foods_;
     FoodSpatialIndex food_spatial_index_;
+    PlayerBallSpatialIndex player_ball_spatial_index_;
     std::vector<std::uint32_t> consumed_food_indices_;
     std::vector<Command> pending_commands_;
 };

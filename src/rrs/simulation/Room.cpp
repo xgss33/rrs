@@ -39,6 +39,23 @@ void ClampBallPosition(PlayerBall& ball)
         room_rules::kRoomHalfExtent - ball.radius);
 }
 
+UniformGridLayout MakeRoomSpatialGridLayout()
+{
+    return UniformGridLayout{
+        Aabb{
+            .min = Vector2{
+                .x = -room_rules::kRoomHalfExtent,
+                .y = -room_rules::kRoomHalfExtent,
+            },
+            .max = Vector2{
+                .x = room_rules::kRoomHalfExtent,
+                .y = room_rules::kRoomHalfExtent,
+            },
+        },
+        room_rules::kSpatialGridCellSize,
+    };
+}
+
 } // namespace
 
 Room::Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanoseconds tick_interval)
@@ -46,18 +63,8 @@ Room::Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanos
     , next_tick_time_(first_tick_time)
     , tick_interval_(tick_interval)
     , rng_(static_cast<std::mt19937::result_type>(room_id.value() * 2654435761ULL))
-    , food_spatial_index_(UniformGridLayout{
-          Aabb{
-              .min = Vector2{
-                  .x = -room_rules::kRoomHalfExtent,
-                  .y = -room_rules::kRoomHalfExtent,
-              },
-              .max = Vector2{
-                  .x = room_rules::kRoomHalfExtent,
-                  .y = room_rules::kRoomHalfExtent,
-              },
-          },
-          room_rules::kSpatialGridCellSize})
+    , food_spatial_index_(MakeRoomSpatialGridLayout())
+    , player_ball_spatial_index_(MakeRoomSpatialGridLayout())
 {
     const auto tick_interval_ns = tick_interval_.count();
     const auto respawn_delay_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(room_rules::kRespawnDelay).count();
@@ -366,41 +373,63 @@ void Room::MovePlayers()
 
 void Room::ResolvePlayerBallEating()
 {
+    player_ball_spatial_index_.Rebuild(players_);
+
     for (std::size_t left_player_index = 0; left_player_index < players_.size(); ++left_player_index) {
         for (std::size_t left_ball_index = 0; left_ball_index < kMaxBallsPerPlayer; ++left_ball_index) {
             if (!IsBallActive(players_[left_player_index], left_ball_index)) {
                 continue;
             }
 
-            for (std::size_t right_player_index = left_player_index; right_player_index < players_.size(); ++right_player_index) {
-                const auto first_right_ball_index = right_player_index == left_player_index ? left_ball_index + 1 : 0;
-                for (std::size_t right_ball_index = first_right_ball_index;
-                     right_ball_index < kMaxBallsPerPlayer;
-                     ++right_ball_index) {
-                    auto& left_player = players_[left_player_index];
-                    auto& right_player = players_[right_player_index];
-                    if (!IsBallActive(left_player, left_ball_index)
-                        || !IsBallActive(right_player, right_ball_index)) {
-                        continue;
-                    }
+            auto next_candidate_order = left_player_index * kMaxBallsPerPlayer + left_ball_index + 1;
+            while (IsBallActive(players_[left_player_index], left_ball_index)) {
+                const auto query_ball = players_[left_player_index].balls[left_ball_index];
+                auto ball_eaten = false;
+                {
+                    const auto candidates = player_ball_spatial_index_.QueryCandidates(query_ball.position, query_ball.radius);
+                    for (const auto candidate : candidates) {
+                        const auto right_player_index = static_cast<std::size_t>(candidate.player_index);
+                        const auto right_ball_index = static_cast<std::size_t>(candidate.ball_index);
+                        const auto candidate_order = right_player_index * kMaxBallsPerPlayer + right_ball_index;
+                        if (candidate_order < next_candidate_order) {
+                            continue;
+                        }
+                        next_candidate_order = candidate_order + 1;
 
-                    const auto left_radius = left_player.balls[left_ball_index].radius;
-                    const auto right_radius = right_player.balls[right_ball_index].radius;
-                    if (left_radius >= right_radius) {
-                        TryEatBall(left_player, left_ball_index, right_player, right_ball_index);
-                    } else {
-                        TryEatBall(right_player, right_ball_index, left_player, left_ball_index);
+                        auto& left_player = players_[left_player_index];
+                        auto& right_player = players_[right_player_index];
+                        if (!IsBallActive(left_player, left_ball_index)
+                            || !IsBallActive(right_player, right_ball_index)) {
+                            continue;
+                        }
+
+                        const auto left_radius = left_player.balls[left_ball_index].radius;
+                        const auto right_radius = right_player.balls[right_ball_index].radius;
+                        if (left_radius >= right_radius) {
+                            ball_eaten = TryEatPlayerBall(left_player, left_ball_index, right_player, right_ball_index);
+                        } else {
+                            ball_eaten = TryEatPlayerBall(right_player, right_ball_index, left_player, left_ball_index);
+                        }
+
+                        if (ball_eaten) {
+                            break;
+                        }
                     }
                 }
+
+                if (!ball_eaten) {
+                    break;
+                }
+                player_ball_spatial_index_.Rebuild(players_);
             }
         }
     }
 }
 
-void Room::TryEatBall(PlayerEntity& attacker,
-                      std::size_t attacker_ball_index,
-                      PlayerEntity& victim,
-                      std::size_t victim_ball_index)
+bool Room::TryEatPlayerBall(PlayerEntity& attacker,
+                            std::size_t attacker_ball_index,
+                            PlayerEntity& victim,
+                            std::size_t victim_ball_index)
 {
     auto& attacker_ball = attacker.balls[attacker_ball_index];
     const auto& victim_ball = victim.balls[victim_ball_index];
@@ -408,7 +437,7 @@ void Room::TryEatBall(PlayerEntity& attacker,
     const auto center_distance = attacker_ball.radius * room_rules::kEatCenterRatio;
     const auto center_ok = DistanceSquared(attacker_ball.position, victim_ball.position) <= center_distance * center_distance;
     if (!radius_ok || !center_ok) {
-        return;
+        return false;
     }
 
     attacker_ball.radius = std::sqrt(
@@ -420,6 +449,7 @@ void Room::TryEatBall(PlayerEntity& attacker,
         victim.input_direction = {};
         victim.respawn_tick = tick_seq_ + respawn_delay_ticks_;
     }
+    return true;
 }
 
 void Room::RespawnDuePlayers()
