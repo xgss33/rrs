@@ -37,6 +37,7 @@ add_executable(rrs
     src/rrs/simulation/spatial/FoodSpatialIndex.cpp
     src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
     src/rrs/simulation/Room.cpp
+    src/rrs/synchronization/SnapshotDeltaTracker.cpp
 )
 
 target_include_directories(rrs
@@ -102,4 +103,33 @@ if (BUILD_TESTING)
     endif()
 
     add_test(NAME RoomVisibilityTest COMMAND RoomVisibilityTest)
+
+    add_executable(SnapshotDeltaTrackerTest
+        tests/synchronization/SnapshotDeltaTrackerTest.cpp
+        src/rrs/synchronization/SnapshotDeltaTracker.cpp
+    )
+
+    if (MSVC)
+        target_compile_options(SnapshotDeltaTrackerTest PRIVATE /W4)
+    else()
+        target_compile_options(SnapshotDeltaTrackerTest PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    target_include_directories(SnapshotDeltaTrackerTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME SnapshotDeltaTrackerTest COMMAND SnapshotDeltaTrackerTest)
+
+    add_executable(BinaryProtocolTest
+        tests/protocol/BinaryProtocolTest.cpp
+        src/rrs/protocol/BinaryProtocol.cpp
+    )
+
+    target_include_directories(BinaryProtocolTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+    if (MSVC)
+        target_compile_options(BinaryProtocolTest PRIVATE /W4)
+    else()
+        target_compile_options(BinaryProtocolTest PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_test(NAME BinaryProtocolTest COMMAND BinaryProtocolTest)
 endif()

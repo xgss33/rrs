@@ -7,10 +7,12 @@
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/PlayerInput.h"
 #include "rrs/simulation/RoomRules.h"
-#include "rrs/simulation/RoomSnapshot.h"
+#include "rrs/simulation/RoomVisibility.h"
 #include "rrs/simulation/spatial/FoodSpatialIndex.h"
 #include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 #include "rrs/spatial/UniformGrid.h"
+#include "rrs/synchronization/SnapshotDeltaTracker.h"
+#include "rrs/synchronization/SnapshotUpdate.h"
 
 #include <algorithm>
 #include <bit>
@@ -19,6 +21,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <random>
 #include <utility>
 
@@ -34,6 +37,15 @@ constexpr std::uint16_t BallMask(std::size_t ball_index)
 bool IsBallActive(const PlayerEntity& player, std::size_t ball_index)
 {
     return (player.active_ball_mask & BallMask(ball_index)) != 0;
+}
+
+bool RequiresFullSnapshot(const std::vector<Room::Event>& events, PlayerId player_id)
+{
+    return std::any_of(events.begin(), events.end(), [player_id](const Room::Event& event) {
+        return event.session.player_id == player_id
+            && (event.type == Room::EventType::kJoinAccepted
+                || event.type == Room::EventType::kReconnectAccepted);
+    });
 }
 
 } // namespace
@@ -107,12 +119,9 @@ Room::TickResult Room::Tick()
         UpdateMatchState();
     }
 
-    result.broadcast_snapshot = BuildBroadcastSnapshot();
-    if (std::any_of(result.events.begin(), result.events.end(), [](const Event& event) {
-            return event.type == EventType::kJoinAccepted || event.type == EventType::kReconnectAccepted;
-        })) {
-        result.full_snapshot = BuildFullSnapshot();
-    }
+    player_ball_spatial_index_.Rebuild(players_);
+    food_spatial_index_.Rebuild(foods_);
+    result.snapshot_updates = BuildSnapshotUpdates(result.events);
 
     next_tick_time_ += tick_interval_;
     return result;
@@ -122,7 +131,6 @@ void Room::InitializeFoods()
 {
     foods_.clear();
     foods_.reserve(room_rules::kFoodCount);
-    consumed_food_indices_.reserve(room_rules::kFoodCount);
 
     std::uniform_real_distribution<float> distribution{
         -room_rules::kRoomHalfExtent + room_rules::kFoodRadius,
@@ -254,6 +262,8 @@ void Room::LeavePlayer(const Session& session, TickResult& result)
     std::erase_if(players_, [player_id = session.player_id](const PlayerEntity& player) {
         return player.player_id == player_id;
     });
+    room_visibility_.RemoveObserver(session.player_id);
+    snapshot_delta_tracker_.RemoveObserver(session.player_id);
 
     result.events.push_back(Event{
         .type = EventType::kPlayerLeft,
@@ -349,12 +359,14 @@ void Room::ResolveFoodEating()
                     ball.radius * ball.radius + room_rules::kFoodRadius * room_rules::kFoodRadius * room_rules::kFoodGrowthRatio);
 
                 consumed_food_flags.set(food_index);
-                consumed_food_indices_.push_back(food_index);
             }
         }
     }
 
-    for (const auto food_index : consumed_food_indices_) {
+    for (std::size_t food_index = 0; food_index < foods_.size(); ++food_index) {
+        if (!consumed_food_flags.test(food_index)) {
+            continue;
+        }
         foods_[food_index].position = Vector2{
             .x = food_position_distribution(rng_),
             .y = food_position_distribution(rng_),
@@ -506,42 +518,36 @@ void Room::UpdateMatchState()
     }
 }
 
-RoomSnapshot Room::BuildBroadcastSnapshot()
+std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(const std::vector<Event>& events)
 {
-    auto snapshot = BuildSnapshotWithPlayers();
-    snapshot.foods.reserve(consumed_food_indices_.size());
-    for (const auto food_index : consumed_food_indices_) {
-        snapshot.foods.push_back(foods_[food_index]);
+    auto updates = std::vector<ObserverSnapshotUpdate>{};
+    updates.reserve(players_.size());
+    const auto winner = match_over_ ? std::optional{winner_player_id_} : std::nullopt;
+
+    for (std::size_t observer_player_index = 0; observer_player_index < players_.size(); ++observer_player_index) {
+        const auto observer_player_id = players_[observer_player_index].player_id;
+        const auto& visible_entities = room_visibility_.Update(
+            observer_player_index,
+            players_,
+            foods_,
+            player_ball_spatial_index_,
+            food_spatial_index_);
+        auto update = snapshot_delta_tracker_.BuildUpdate(
+            observer_player_id,
+            tick_seq_,
+            visible_entities,
+            players_,
+            foods_,
+            winner,
+            RequiresFullSnapshot(events, observer_player_id));
+        if (update) {
+            updates.push_back(ObserverSnapshotUpdate{
+                .observer_player_id = observer_player_id,
+                .update = std::move(*update),
+            });
+        }
     }
-    consumed_food_indices_.clear();
-    return snapshot;
-}
-
-RoomSnapshot Room::BuildFullSnapshot() const
-{
-    auto snapshot = BuildSnapshotWithPlayers();
-    snapshot.foods = foods_;
-    return snapshot;
-}
-
-RoomSnapshot Room::BuildSnapshotWithPlayers() const
-{
-    RoomSnapshot snapshot{
-        .tick_seq = tick_seq_,
-        .players = {},
-        .foods = {},
-        .winner_player_id = match_over_ ? winner_player_id_ : PlayerId{},
-    };
-    snapshot.players.reserve(players_.size());
-
-    for (const auto& player : players_) {
-        snapshot.players.push_back(PlayerStateSnapshot{
-            .player_id = player.player_id,
-            .active_ball_mask = player.active_ball_mask,
-            .balls = player.balls,
-        });
-    }
-    return snapshot;
+    return updates;
 }
 
 float Room::CalculateBallSpeed(float radius) const

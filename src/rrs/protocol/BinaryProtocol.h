@@ -10,7 +10,7 @@
 
 namespace rrs {
 
-struct RoomSnapshot;
+struct SnapshotUpdate;
 
 enum class ClientMessageType : std::uint8_t {
     kJoin = 1,
@@ -46,6 +46,6 @@ enum class BinaryFrameDecodeStatus {
 
 [[nodiscard]] std::string EncodeFrame(ServerMessageType message_type, std::string_view payload);
 [[nodiscard]] std::string EncodeSessionPayload(SessionId session_id, Generation generation, std::string_view snapshot_payload);
-[[nodiscard]] std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot);
+[[nodiscard]] std::string EncodeSnapshotPayload(const SnapshotUpdate& update);
 
 } // namespace rrs

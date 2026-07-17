@@ -6,15 +6,16 @@
 #include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/PlayerInput.h"
-#include "rrs/simulation/RoomSnapshot.h"
+#include "rrs/simulation/RoomVisibility.h"
 #include "rrs/simulation/spatial/FoodSpatialIndex.h"
 #include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 #include "rrs/spatial/UniformGrid.h"
+#include "rrs/synchronization/SnapshotDeltaTracker.h"
+#include "rrs/synchronization/SnapshotUpdate.h"
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <random>
 #include <vector>
 
@@ -56,9 +57,13 @@ public:
         Session session;
     };
 
+    struct ObserverSnapshotUpdate {
+        PlayerId observer_player_id;
+        SnapshotUpdate update;
+    };
+
     struct TickResult {
-        RoomSnapshot broadcast_snapshot;
-        std::optional<RoomSnapshot> full_snapshot;
+        std::vector<ObserverSnapshotUpdate> snapshot_updates;
         std::vector<Event> events;
     };
 
@@ -95,9 +100,7 @@ private:
     void RespawnDuePlayers();
     void UpdateMatchState();
 
-    [[nodiscard]] RoomSnapshot BuildBroadcastSnapshot();
-    [[nodiscard]] RoomSnapshot BuildFullSnapshot() const;
-    [[nodiscard]] RoomSnapshot BuildSnapshotWithPlayers() const;
+    [[nodiscard]] std::vector<ObserverSnapshotUpdate> BuildSnapshotUpdates(const std::vector<Event>& events);
 
     float CalculateBallSpeed(float radius) const;
     Vector2 FindSpawnPosition();
@@ -116,7 +119,8 @@ private:
     std::vector<FoodEntity> foods_;
     FoodSpatialIndex food_spatial_index_;
     PlayerBallSpatialIndex player_ball_spatial_index_;
-    std::vector<std::uint32_t> consumed_food_indices_;
+    RoomVisibility room_visibility_;
+    SnapshotDeltaTracker snapshot_delta_tracker_;
     std::vector<Command> pending_commands_;
 };
 

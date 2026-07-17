@@ -3,15 +3,11 @@
 #include "rrs/core/Identifiers.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/PlayerInput.h"
-#include "rrs/simulation/RoomRules.h"
-#include "rrs/simulation/RoomSnapshot.h"
+#include "rrs/synchronization/SnapshotUpdate.h"
 
-#include <algorithm>
 #include <bit>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 
 namespace rrs {
 
@@ -24,15 +20,13 @@ constexpr std::size_t kReconnectPayloadSize = 8;
 constexpr std::size_t kInputPayloadSize = 5;
 constexpr std::size_t kLeavePayloadSize = 0;
 constexpr std::size_t kSessionPrefixSize = 16;
-constexpr std::size_t kSnapshotFixedPayloadSize = 13;
-constexpr std::size_t kSnapshotPlayerFixedSize = 10;
+constexpr std::size_t kSnapshotFixedPayloadSize = 9;
+constexpr std::size_t kSnapshotPlayerFixedSize = 12;
 constexpr std::size_t kSnapshotBallSize = 6;
 constexpr std::size_t kSnapshotFoodSize = 6;
 constexpr std::uint32_t kMaxFrameLength = 64 * 1024;
-constexpr float kEncodedPositionMin = -room_rules::kRoomHalfExtent;
-constexpr float kEncodedPositionMax = room_rules::kRoomHalfExtent;
-constexpr float kEncodedRadiusMin = 0.0F;
-constexpr float kEncodedRadiusMax = 1024.0F;
+constexpr std::uint8_t kFullResetFlag = 1U << 0U;
+constexpr std::uint8_t kWinnerPresentFlag = 1U << 1U;
 
 void AppendU8(std::string& output, std::uint8_t value)
 {
@@ -63,22 +57,6 @@ void AppendU64(std::string& output, std::uint64_t value)
     for (int shift = 56; shift >= 0; shift -= 8) {
         output.push_back(static_cast<char>((value >> static_cast<unsigned>(shift)) & 0xFFU));
     }
-}
-
-std::int16_t EncodePosition(float value)
-{
-    const auto clamped = std::clamp(value, kEncodedPositionMin, kEncodedPositionMax);
-    const auto normalized = (clamped - kEncodedPositionMin) / (kEncodedPositionMax - kEncodedPositionMin);
-    const auto encoded = std::lround(normalized * static_cast<float>(std::numeric_limits<std::uint16_t>::max()))
-        + static_cast<long>(std::numeric_limits<std::int16_t>::min());
-    return static_cast<std::int16_t>(encoded);
-}
-
-std::uint16_t EncodeRadius(float value)
-{
-    const auto clamped = std::clamp(value, kEncodedRadiusMin, kEncodedRadiusMax);
-    const auto normalized = (clamped - kEncodedRadiusMin) / (kEncodedRadiusMax - kEncodedRadiusMin);
-    return static_cast<std::uint16_t>(std::lround(normalized * static_cast<float>(std::numeric_limits<std::uint16_t>::max())));
 }
 
 std::uint32_t ReadU32At(const std::string& input, std::size_t offset)
@@ -198,40 +176,69 @@ std::string EncodeSessionPayload(SessionId session_id, Generation generation, st
     return output;
 }
 
-std::string EncodeSnapshotPayload(const RoomSnapshot& snapshot)
+std::string EncodeSnapshotPayload(const SnapshotUpdate& update)
 {
     std::string output;
     auto player_payload_size = std::size_t{0};
-    for (const auto& player : snapshot.players) {
-        player_payload_size += kSnapshotPlayerFixedSize + kSnapshotBallSize * std::popcount(player.active_ball_mask);
+    for (const auto& player : update.player_updates) {
+        player_payload_size += kSnapshotPlayerFixedSize + kSnapshotBallSize * std::popcount(player.changed_ball_mask);
     }
-    output.reserve(kSnapshotFixedPayloadSize + player_payload_size + snapshot.foods.size() * kSnapshotFoodSize);
-    AppendU16(output, static_cast<std::uint16_t>(snapshot.tick_seq));
-    AppendU8(output, static_cast<std::uint8_t>(snapshot.players.size()));
-    for (const auto& player : snapshot.players) {
+    output.reserve(
+        kSnapshotFixedPayloadSize
+        + player_payload_size
+        + update.removed_player_ids.size() * sizeof(std::uint64_t)
+        + update.food_updates.size() * kSnapshotFoodSize
+        + update.removed_food_ids.size() * sizeof(std::uint16_t)
+        + (update.winner_player_id.has_value() ? sizeof(std::uint64_t) : 0));
+
+    AppendU16(output, static_cast<std::uint16_t>(update.tick_seq));
+    auto flags = std::uint8_t{0};
+    if (update.full_reset) {
+        flags = static_cast<std::uint8_t>(flags | kFullResetFlag);
+    }
+    if (update.winner_player_id) {
+        flags = static_cast<std::uint8_t>(flags | kWinnerPresentFlag);
+    }
+    AppendU8(output, flags);
+
+    AppendU8(output, static_cast<std::uint8_t>(update.player_updates.size()));
+    for (const auto& player : update.player_updates) {
         AppendU64(output, player.player_id.value());
-        AppendU16(output, player.active_ball_mask);
+        AppendU16(output, player.visible_ball_mask);
+        AppendU16(output, player.changed_ball_mask);
         for (std::size_t ball_index = 0; ball_index < kMaxBallsPerPlayer; ++ball_index) {
             const auto ball_mask = static_cast<std::uint16_t>(1U << ball_index);
-            if ((player.active_ball_mask & ball_mask) == 0) {
+            if ((player.changed_ball_mask & ball_mask) == 0) {
                 continue;
             }
 
             const auto& ball = player.balls[ball_index];
-            AppendI16(output, EncodePosition(ball.position.x));
-            AppendI16(output, EncodePosition(ball.position.y));
-            AppendU16(output, EncodeRadius(ball.radius));
+            AppendI16(output, ball.position.x);
+            AppendI16(output, ball.position.y);
+            AppendU16(output, ball.radius);
         }
     }
 
-    AppendU16(output, static_cast<std::uint16_t>(snapshot.foods.size()));
-    for (const auto& food : snapshot.foods) {
-        AppendU16(output, static_cast<std::uint16_t>(food.food_id.value()));
-        AppendI16(output, EncodePosition(food.position.x));
-        AppendI16(output, EncodePosition(food.position.y));
+    AppendU8(output, static_cast<std::uint8_t>(update.removed_player_ids.size()));
+    for (const auto player_id : update.removed_player_ids) {
+        AppendU64(output, player_id.value());
     }
 
-    AppendU64(output, snapshot.winner_player_id.value());
+    AppendU16(output, static_cast<std::uint16_t>(update.food_updates.size()));
+    for (const auto& food : update.food_updates) {
+        AppendU16(output, static_cast<std::uint16_t>(food.food_id.value()));
+        AppendI16(output, food.position.x);
+        AppendI16(output, food.position.y);
+    }
+
+    AppendU16(output, static_cast<std::uint16_t>(update.removed_food_ids.size()));
+    for (const auto food_id : update.removed_food_ids) {
+        AppendU16(output, static_cast<std::uint16_t>(food_id.value()));
+    }
+
+    if (update.winner_player_id) {
+        AppendU64(output, update.winner_player_id->value());
+    }
     return output;
 }
 

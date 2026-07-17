@@ -9,6 +9,7 @@
 #include "rrs/runtime/WorkerChannels.h"
 #include "rrs/runtime/WorkerRoomRegistry.h"
 #include "rrs/simulation/Room.h"
+#include "rrs/synchronization/SnapshotUpdate.h"
 
 #include <algorithm>
 #include <chrono>
@@ -18,6 +19,23 @@
 #include <utility>
 
 namespace rrs {
+
+namespace {
+
+const SnapshotUpdate* FindSnapshotUpdate(
+    const std::vector<Room::ObserverSnapshotUpdate>& snapshot_updates,
+    PlayerId observer_player_id)
+{
+    const auto iterator = std::find_if(
+        snapshot_updates.begin(),
+        snapshot_updates.end(),
+        [observer_player_id](const Room::ObserverSnapshotUpdate& delivery) {
+            return delivery.observer_player_id == observer_player_id;
+        });
+    return iterator != snapshot_updates.end() ? &iterator->update : nullptr;
+}
+
+} // namespace
 
 WorkerThread::WorkerThread(WorkerId worker_id,
                            std::chrono::nanoseconds tick_interval,
@@ -216,36 +234,40 @@ void WorkerThread::TickDueRooms(Clock::time_point now)
 void WorkerThread::HandleRoomTickResult(const Room& room, const Room::TickResult& result)
 {
     const auto room_id = room.id();
-    const auto snapshot_payload = EncodeSnapshotPayload(result.broadcast_snapshot);
-    auto snapshot_frame_bytes = EncodeFrame(ServerMessageType::kSnapshot, snapshot_payload);
-    const auto encoded_snapshot_frame = std::make_shared<const std::string>(std::move(snapshot_frame_bytes));
-    const auto full_snapshot_payload = result.full_snapshot.has_value() ? EncodeSnapshotPayload(*result.full_snapshot) : std::string{};
     auto excluded_sessions = std::vector<SessionId>{};
     excluded_sessions.reserve(result.events.size());
 
     for (const auto& event : result.events) {
-        HandleRoomEvent(room_id, full_snapshot_payload, event, excluded_sessions);
+        HandleRoomEvent(room_id, result.snapshot_updates, event, excluded_sessions);
     }
 
-    PublishSnapshot(room_id, encoded_snapshot_frame, excluded_sessions);
+    PublishSnapshotUpdates(room_id, result.snapshot_updates, excluded_sessions);
 }
 
 void WorkerThread::HandleRoomEvent(RoomId room_id,
-                                   const std::string& full_snapshot_payload,
+                                   const std::vector<Room::ObserverSnapshotUpdate>& snapshot_updates,
                                    const Room::Event& event,
                                    std::vector<SessionId>& excluded_sessions)
 {
     switch (event.type) {
-    case Room::EventType::kJoinAccepted:
+    case Room::EventType::kJoinAccepted: {
         rooms_.ActivateSession(event.session.session_id);
         rooms_.UpdateRoomOpenState(room_id);
-        PushToIo(event.session, WorkerToIoMessage::MakeJoinOk(event.session, full_snapshot_payload));
+        const auto* update = FindSnapshotUpdate(snapshot_updates, event.session.player_id);
+        if (update != nullptr) {
+            PushToIo(event.session, WorkerToIoMessage::MakeJoinOk(event.session, EncodeSnapshotPayload(*update)));
+        }
         excluded_sessions.push_back(event.session.session_id);
         return;
-    case Room::EventType::kReconnectAccepted:
-        PushToIo(event.session, WorkerToIoMessage::MakeReconnectOk(event.session, full_snapshot_payload));
+    }
+    case Room::EventType::kReconnectAccepted: {
+        const auto* update = FindSnapshotUpdate(snapshot_updates, event.session.player_id);
+        if (update != nullptr) {
+            PushToIo(event.session, WorkerToIoMessage::MakeReconnectOk(event.session, EncodeSnapshotPayload(*update)));
+        }
         excluded_sessions.push_back(event.session.session_id);
         return;
+    }
     case Room::EventType::kReconnectRejected:
         PushToIo(event.session, WorkerToIoMessage::MakeError(event.session, "PLAYER_NOT_FOUND"));
         excluded_sessions.push_back(event.session.session_id);
@@ -258,18 +280,25 @@ void WorkerThread::HandleRoomEvent(RoomId room_id,
     }
 }
 
-void WorkerThread::PublishSnapshot(RoomId room_id,
-                                   std::shared_ptr<const std::string> encoded_snapshot_frame,
-                                   const std::vector<SessionId>& excluded_sessions)
+void WorkerThread::PublishSnapshotUpdates(
+    RoomId room_id,
+    const std::vector<Room::ObserverSnapshotUpdate>& snapshot_updates,
+    const std::vector<SessionId>& excluded_sessions)
 {
-    rooms_.ForEachActiveSessionInRoom(room_id, [this, &encoded_snapshot_frame, &excluded_sessions](const Session& session) {
+    rooms_.ForEachActiveSessionInRoom(room_id, [this, &snapshot_updates, &excluded_sessions](const Session& session) {
         if (std::find(excluded_sessions.begin(), excluded_sessions.end(), session.session_id) != excluded_sessions.end()) {
             return;
         }
 
+        const auto* update = FindSnapshotUpdate(snapshot_updates, session.player_id);
+        if (update == nullptr) {
+            return;
+        }
+        auto encoded_frame = std::make_shared<const std::string>(
+            EncodeFrame(ServerMessageType::kSnapshot, EncodeSnapshotPayload(*update)));
         PushToIo(session, WorkerToIoMessage{
                               .session = session,
-                              .encoded_frame = encoded_snapshot_frame,
+                              .encoded_frame = std::move(encoded_frame),
                           });
     });
 }
