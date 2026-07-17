@@ -1,10 +1,11 @@
 #include "rrs/game/Room.h"
 
-#include "rrs/game/FoodEntity.h"
 #include "rrs/game/RoomRules.h"
+#include "rrs/spatial/UniformGrid.h"
 
 #include <algorithm>
 #include <bit>
+#include <bitset>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -45,6 +46,18 @@ Room::Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanos
     , next_tick_time_(first_tick_time)
     , tick_interval_(tick_interval)
     , rng_(static_cast<std::mt19937::result_type>(room_id.value() * 2654435761ULL))
+    , food_spatial_index_(UniformGridLayout{
+          Aabb{
+              .min = Vector2{
+                  .x = -room_rules::kRoomHalfExtent,
+                  .y = -room_rules::kRoomHalfExtent,
+              },
+              .max = Vector2{
+                  .x = room_rules::kRoomHalfExtent,
+                  .y = room_rules::kRoomHalfExtent,
+              },
+          },
+          room_rules::kSpatialGridCellSize})
 {
     const auto tick_interval_ns = tick_interval_.count();
     const auto respawn_delay_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(room_rules::kRespawnDelay).count();
@@ -52,7 +65,7 @@ Room::Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanos
 
     respawn_delay_ticks_ = static_cast<TickSeq>(std::max<std::int64_t>(1, respawn_delay_ns / tick_interval_ns));
     match_duration_ticks_ = static_cast<TickSeq>(std::max<std::int64_t>(1, match_duration_ns / tick_interval_ns));
-    InitializeFood();
+    InitializeFoods();
 }
 
 void Room::EnqueueCommand(Command command)
@@ -72,7 +85,7 @@ Room::TickResult Room::Tick()
     if (!match_over_) {
         SplitPlayers(player_inputs);
         MovePlayers();
-        ResolveFoodCollisions();
+        ResolveFoodEating();
         ResolvePlayerBallEating();
         RespawnDuePlayers();
         UpdateMatchState();
@@ -89,9 +102,11 @@ Room::TickResult Room::Tick()
     return result;
 }
 
-void Room::InitializeFood()
+void Room::InitializeFoods()
 {
-    foods_.Reset(room_rules::kFoodCount);
+    foods_.clear();
+    foods_.reserve(room_rules::kFoodCount);
+    consumed_food_indices_.reserve(room_rules::kFoodCount);
 
     std::uniform_real_distribution<float> distribution{
         -room_rules::kRoomHalfExtent + room_rules::kFoodRadius,
@@ -99,7 +114,7 @@ void Room::InitializeFood()
     };
 
     for (std::size_t food_index = 0; food_index < room_rules::kFoodCount; ++food_index) {
-        foods_.Add(FoodEntity{
+        foods_.push_back(FoodEntity{
             .food_id = FoodId{food_index + 1},
             .position = Vector2{
                 .x = distribution(rng_),
@@ -286,8 +301,11 @@ void Room::SplitPlayer(PlayerEntity& player)
     }
 }
 
-void Room::ResolveFoodCollisions()
+void Room::ResolveFoodEating()
 {
+    food_spatial_index_.Rebuild(foods_);
+
+    auto consumed_food_flags = std::bitset<room_rules::kFoodCount>{};
     std::uniform_real_distribution<float> food_position_distribution{
         -room_rules::kRoomHalfExtent + room_rules::kFoodRadius,
         room_rules::kRoomHalfExtent - room_rules::kFoodRadius,
@@ -301,7 +319,12 @@ void Room::ResolveFoodCollisions()
 
             auto& ball = player.balls[ball_index];
             const auto eat_distance = ball.radius + room_rules::kFoodRadius;
-            for (const auto food : foods_.Query(ball.position, eat_distance)) {
+            for (const auto food_index : food_spatial_index_.QueryCandidates(ball.position, ball.radius)) {
+                if (consumed_food_flags.test(food_index)) {
+                    continue;
+                }
+
+                const auto& food = foods_[food_index];
                 if (DistanceSquared(ball.position, food.position) > eat_distance * eat_distance) {
                     continue;
                 }
@@ -309,12 +332,17 @@ void Room::ResolveFoodCollisions()
                 ball.radius = std::sqrt(
                     ball.radius * ball.radius + room_rules::kFoodRadius * room_rules::kFoodRadius * room_rules::kFoodGrowthRatio);
 
-                foods_.MoveTo(food.food_id, Vector2{
-                                               .x = food_position_distribution(rng_),
-                                               .y = food_position_distribution(rng_),
-                                           });
+                consumed_food_flags.set(food_index);
+                consumed_food_indices_.push_back(food_index);
             }
         }
+    }
+
+    for (const auto food_index : consumed_food_indices_) {
+        foods_[food_index].position = Vector2{
+            .x = food_position_distribution(rng_),
+            .y = food_position_distribution(rng_),
+        };
     }
 }
 
@@ -442,16 +470,18 @@ void Room::UpdateMatchState()
 RoomSnapshot Room::BuildBroadcastSnapshot()
 {
     auto snapshot = BuildSnapshotWithPlayers();
-    snapshot.foods.reserve(foods_.dirty_count());
-    foods_.AppendDeltaSnapshot(snapshot.foods);
+    snapshot.foods.reserve(consumed_food_indices_.size());
+    for (const auto food_index : consumed_food_indices_) {
+        snapshot.foods.push_back(foods_[food_index]);
+    }
+    consumed_food_indices_.clear();
     return snapshot;
 }
 
 RoomSnapshot Room::BuildFullSnapshot() const
 {
     auto snapshot = BuildSnapshotWithPlayers();
-    snapshot.foods.reserve(foods_.food_count());
-    foods_.AppendFullSnapshot(snapshot.foods);
+    snapshot.foods = foods_;
     return snapshot;
 }
 

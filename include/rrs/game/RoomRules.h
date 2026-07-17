@@ -6,9 +6,7 @@
 namespace rrs::room_rules {
 inline constexpr float kRoomHalfExtent = 1024.0F;
 
-inline constexpr float kFoodCellSize = 64.0F;
-inline constexpr std::size_t kFoodGridSideCellCount = 32;
-inline constexpr std::size_t kFoodCellCount = kFoodGridSideCellCount * kFoodGridSideCellCount;
+inline constexpr float kSpatialGridCellSize = 64.0F;
 
 inline constexpr float kInitialPlayerRadius = 12.0F;
 inline constexpr float kFoodRadius = 4.0F;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rrs/base/Types.h"
+#include "rrs/game/FoodEntity.h"
 #include "rrs/game/FoodSpatialIndex.h"
 #include "rrs/game/PlayerInput.h"
 #include "rrs/game/PlayerEntity.h"
@@ -10,6 +11,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <random>
 #include <vector>
@@ -67,7 +69,7 @@ private:
         PlayerInput input;
     };
 
-    void InitializeFood();
+    void InitializeFoods();
 
     [[nodiscard]] std::vector<Command> TakeCommandsForTick(Clock::time_point tick_start);
     [[nodiscard]] std::vector<AggregatedPlayerInput> ProcessCommands(const std::vector<Command>& commands, TickResult& result);
@@ -79,7 +81,7 @@ private:
     void SplitPlayers(const std::vector<AggregatedPlayerInput>& inputs);
     void SplitPlayer(PlayerEntity& player);
     void MovePlayers();
-    void ResolveFoodCollisions();
+    void ResolveFoodEating();
     void ResolvePlayerBallEating();
     void TryEatBall(PlayerEntity& attacker,
                     std::size_t attacker_ball_index,
@@ -106,7 +108,9 @@ private:
     PlayerId winner_player_id_;
     std::mt19937 rng_;
     std::vector<PlayerEntity> players_;
-    FoodSpatialIndex foods_;
+    std::vector<FoodEntity> foods_;
+    FoodSpatialIndex food_spatial_index_;
+    std::vector<std::uint32_t> consumed_food_indices_;
     std::vector<Command> pending_commands_;
 };
 
