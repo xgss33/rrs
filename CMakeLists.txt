@@ -11,35 +11,35 @@ find_package(Threads REQUIRED)
 add_subdirectory(third_party/spdlog)
 
 add_library(rrs_spatial STATIC
-    src/spatial/UniformGrid.cpp
+    src/rrs/spatial/UniformGrid.cpp
 )
 
 target_include_directories(rrs_spatial
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 add_executable(rrs
     src/main.cpp
-    src/config/ServerConfig.cpp
-    src/game/FoodSpatialIndex.cpp
-    src/game/Room.cpp
-    src/log/Logger.cpp
-    src/metrics/MetricsRegistry.cpp
-    src/metrics/MetricsReporter.cpp
-    src/runtime/WorkerToIoMessage.cpp
-    src/net/Acceptor.cpp
-    src/net/BinaryProtocol.cpp
-    src/net/IOThread.cpp
-    src/runtime/SessionRegistry.cpp
-    src/runtime/WorkerRoomRegistry.cpp
-    src/runtime/WorkerThread.cpp
-    src/base/Threading.cpp
+    src/rrs/core/Threading.cpp
+    src/rrs/config/ServerConfig.cpp
+    src/rrs/network/Acceptor.cpp
+    src/rrs/network/IOThread.cpp
+    src/rrs/observability/Logger.cpp
+    src/rrs/observability/MetricsRegistry.cpp
+    src/rrs/observability/MetricsReporter.cpp
+    src/rrs/protocol/BinaryProtocol.cpp
+    src/rrs/runtime/SessionRegistry.cpp
+    src/rrs/runtime/WorkerChannels.cpp
+    src/rrs/runtime/WorkerRoomRegistry.cpp
+    src/rrs/runtime/WorkerThread.cpp
+    src/rrs/simulation/spatial/FoodSpatialIndex.cpp
+    src/rrs/simulation/Room.cpp
 )
 
 target_include_directories(rrs
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_link_libraries(rrs PRIVATE rrs_spatial spdlog::spdlog Threads::Threads)
@@ -56,7 +56,7 @@ include(CTest)
 
 if (BUILD_TESTING)
     add_executable(UniformGridTest
-        tests/UniformGridTest.cpp
+        tests/spatial/UniformGridTest.cpp
     )
 
     target_link_libraries(UniformGridTest PRIVATE rrs_spatial)
