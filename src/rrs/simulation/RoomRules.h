@@ -7,6 +7,8 @@ namespace rrs::room_rules {
 inline constexpr float kRoomHalfExtent = 1024.0F;
 
 inline constexpr float kSpatialGridCellSize = 64.0F;
+inline constexpr float kAoiEnterDistance = 384.0F;
+inline constexpr float kAoiLeaveDistance = 448.0F;
 
 inline constexpr float kInitialPlayerRadius = 12.0F;
 inline constexpr float kFoodRadius = 4.0F;
