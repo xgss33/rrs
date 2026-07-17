@@ -26,6 +26,15 @@
 
 namespace rrs {
 
+namespace {
+
+bool IsPeerDisconnectError(int error_number)
+{
+    return error_number == ECONNRESET || error_number == EPIPE;
+}
+
+} // namespace
+
 IOThread::IOThread(IoThreadId io_thread_id,
                    std::vector<WorkerInboxSender> worker_inboxes,
                    SessionRegistry& session_registry,
@@ -365,6 +374,12 @@ bool IOThread::ReadClientFrames(ClientConnection& client, std::vector<BinaryFram
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             break;
         }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (IsPeerDisconnectError(errno)) {
+            return false;
+        }
 
         Logger::Warn("[IO] recv failed fd={} error={}", client.fd, std::strerror(errno));
         return false;
@@ -406,6 +421,12 @@ bool IOThread::FlushClientOutbound(ClientConnection& client)
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 SetClientWriteInterest(client, true);
                 return true;
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            if (IsPeerDisconnectError(errno)) {
+                return false;
             }
 
             Logger::Warn("[IO] send outbound failed fd={} error={}", client.fd, std::strerror(errno));
