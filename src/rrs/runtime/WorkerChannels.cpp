@@ -1,5 +1,7 @@
 #include "rrs/runtime/WorkerChannels.h"
+
 #include "rrs/protocol/BinaryProtocol.h"
+#include "rrs/runtime/Session.h"
 
 #include <memory>
 #include <utility>

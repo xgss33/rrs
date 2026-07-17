@@ -1,11 +1,11 @@
 #pragma once
 
 #include "rrs/core/Identifiers.h"
-#include "rrs/simulation/PlayerInput.h"
 #include "rrs/observability/MetricsRegistry.h"
 #include "rrs/runtime/Mailbox.h"
 #include "rrs/runtime/Session.h"
 #include "rrs/runtime/WorkerChannels.h"
+#include "rrs/simulation/PlayerInput.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -41,8 +41,8 @@ public:
     void Stop();
     void EnqueueAcceptedClient(int client_fd);
 
-    [[nodiscard]] IoThreadId id() const noexcept { return io_thread_id_; }
-    [[nodiscard]] IoInboxSender inbox_sender() noexcept { return IoInboxSender{inbox_}; }
+    IoThreadId id() const { return io_thread_id_; }
+    IoInboxSender inbox_sender() { return IoInboxSender{inbox_}; }
 
 private:
     struct PendingWrite {
@@ -80,8 +80,8 @@ private:
     void UnbindClientSession(ClientConnection& client);
     void QueueEncodedFrame(ClientConnection& client, std::shared_ptr<const std::string> encoded_frame);
     void QueueErrorFrame(ClientConnection& client, const std::string& message);
-    [[nodiscard]] bool IsCurrentClientSession(const ClientConnection& client, const Session& session) const;
-    [[nodiscard]] WorkerId SelectWorkerForJoin(PlayerId player_id) const;
+    bool IsCurrentClientSession(const ClientConnection& client, const Session& session) const;
+    WorkerId SelectWorkerForJoin(PlayerId player_id) const;
     [[nodiscard]] bool PushToWorker(WorkerId worker_id, IoToWorkerMessage message);
 
     IoThreadId io_thread_id_;

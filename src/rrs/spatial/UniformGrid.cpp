@@ -1,5 +1,7 @@
 #include "rrs/spatial/UniformGrid.h"
 
+#include "rrs/math/Vector2.h"
+
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -16,10 +18,10 @@ Aabb AabbForCircle(Vector2 center, float radius)
 }
 
 UniformGridLayout::UniformGridLayout(Aabb bounds, float cell_size)
-    : bounds_(bounds),
-      cell_size_(cell_size),
-      column_count_(static_cast<std::uint32_t>(std::ceil((bounds.max.x - bounds.min.x) / cell_size))),
-      row_count_(static_cast<std::uint32_t>(std::ceil((bounds.max.y - bounds.min.y) / cell_size)))
+    : bounds_(bounds)
+    , cell_size_(cell_size)
+    , column_count_(static_cast<std::uint32_t>(std::ceil((bounds.max.x - bounds.min.x) / cell_size)))
+    , row_count_(static_cast<std::uint32_t>(std::ceil((bounds.max.y - bounds.min.y) / cell_size)))
 {
 }
 
@@ -28,7 +30,7 @@ std::size_t UniformGridLayout::cell_count() const
     return static_cast<std::size_t>(column_count_) * row_count_;
 }
 
-std::optional<GridCellRange> UniformGridLayout::CellRangeForBounds(Aabb bounds) const noexcept
+std::optional<GridCellRange> UniformGridLayout::CellRangeForBounds(Aabb bounds) const
 {
     if (bounds.max.x < bounds_.min.x || bounds.min.x > bounds_.max.x ||
         bounds.max.y < bounds_.min.y || bounds.min.y > bounds_.max.y) {
@@ -65,9 +67,9 @@ std::uint32_t UniformGridLayout::CellY(float position) const
 }
 
 UniformGridIndex::UniformGridIndex(UniformGridLayout layout)
-    : layout_(layout),
-      cell_offsets_(layout.cell_count() + 1, 0),
-      cell_write_offsets_(layout.cell_count(), 0)
+    : layout_(layout)
+    , cell_offsets_(layout.cell_count() + 1, 0)
+    , cell_write_offsets_(layout.cell_count(), 0)
 {
 }
 
@@ -112,7 +114,7 @@ void UniformGridIndex::Rebuild(std::span<const Aabb> record_bounds)
     }
 }
 
-std::span<const std::uint32_t> UniformGridIndex::RecordIndicesInCell(GridCellCoord cell) const noexcept
+std::span<const std::uint32_t> UniformGridIndex::RecordIndicesInCell(GridCellCoord cell) const
 {
     const auto cell_index = layout_.CellIndex(cell);
     const auto begin = cell_offsets_[cell_index];

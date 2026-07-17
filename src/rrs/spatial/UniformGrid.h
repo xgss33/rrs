@@ -40,7 +40,7 @@ public:
     // 返回单元格数量
     std::size_t cell_count() const;
     // 将AABB转换成覆盖的单元格范围
-    [[nodiscard]] std::optional<GridCellRange> CellRangeForBounds(Aabb bounds) const noexcept;
+    [[nodiscard]] std::optional<GridCellRange> CellRangeForBounds(Aabb bounds) const;
     // 以行优先顺序将二维单元格坐标转换成连续数组下标
     std::size_t CellIndex(GridCellCoord cell) const;
 
@@ -67,7 +67,7 @@ public:
     [[nodiscard]] std::span<const std::uint32_t> QueryCandidates(Aabb query_bounds);
 
 private:
-    std::span<const std::uint32_t> RecordIndicesInCell(GridCellCoord cell) const noexcept;
+    std::span<const std::uint32_t> RecordIndicesInCell(GridCellCoord cell) const;
 
     UniformGridLayout layout_;
     std::vector<std::size_t> cell_offsets_; // 单元数量 + 1，用于表示左闭右开的记录范围

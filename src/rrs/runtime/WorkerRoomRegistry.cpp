@@ -1,5 +1,9 @@
 #include "rrs/runtime/WorkerRoomRegistry.h"
+
+#include "rrs/core/Identifiers.h"
 #include "rrs/observability/Logger.h"
+#include "rrs/runtime/Session.h"
+#include "rrs/simulation/Room.h"
 
 #include <algorithm>
 
@@ -12,8 +16,8 @@ constexpr RoomId::ValueType kRoomIdWorkerStride = 1'000'000;
 } // namespace
 
 WorkerRoomRegistry::WorkerRoomRegistry(WorkerId worker_id,
-                                 std::chrono::nanoseconds tick_interval,
-                                 std::size_t room_capacity)
+                                       std::chrono::nanoseconds tick_interval,
+                                       std::size_t room_capacity)
     : worker_id_(worker_id)
     , tick_interval_(tick_interval)
     , room_capacity_(room_capacity)

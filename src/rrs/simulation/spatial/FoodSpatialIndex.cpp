@@ -1,6 +1,9 @@
 #include "rrs/simulation/spatial/FoodSpatialIndex.h"
 
+#include "rrs/math/Vector2.h"
+#include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/RoomRules.h"
+#include "rrs/spatial/UniformGrid.h"
 
 namespace rrs {
 

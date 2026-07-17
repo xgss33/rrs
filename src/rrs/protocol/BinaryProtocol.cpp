@@ -1,6 +1,8 @@
 #include "rrs/protocol/BinaryProtocol.h"
 
+#include "rrs/core/Identifiers.h"
 #include "rrs/simulation/PlayerEntity.h"
+#include "rrs/simulation/PlayerInput.h"
 #include "rrs/simulation/RoomRules.h"
 #include "rrs/simulation/RoomSnapshot.h"
 

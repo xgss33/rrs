@@ -1,7 +1,7 @@
 #pragma once
 
-#include <format>
 #include <cstdint>
+#include <format>
 #include <string_view>
 #include <utility>
 
@@ -61,7 +61,7 @@ private:
         kError,
     };
 
-    [[nodiscard]] static bool ShouldLog(Level level) noexcept;
+    static bool ShouldLog(Level level);
     static void Log(Level level, std::string_view message);
     static void LogMetrics(std::string_view message);
 };

@@ -1,5 +1,7 @@
 #include "rrs/observability/MetricsRegistry.h"
 
+#include "rrs/core/Identifiers.h"
+
 #include <atomic>
 
 namespace rrs {

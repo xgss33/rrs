@@ -1,5 +1,7 @@
 #include "rrs/spatial/UniformGrid.h"
 
+#include "rrs/math/Vector2.h"
+
 #include <algorithm>
 #include <array>
 #include <cstdlib>

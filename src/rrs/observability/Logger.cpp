@@ -17,7 +17,7 @@ namespace {
 
 LogLevel g_log_level = LogLevel::kInfo;
 
-[[nodiscard]] std::string_view LogLevelName(LogLevel log_level)
+std::string_view LogLevelName(LogLevel log_level)
 {
     switch (log_level) {
     case LogLevel::kInfo:
@@ -32,7 +32,7 @@ LogLevel g_log_level = LogLevel::kInfo;
     return "info";
 }
 
-[[nodiscard]] std::string MakeLogFilePath(std::uint32_t io_thread_count, std::uint32_t worker_thread_count)
+std::string MakeLogFilePath(std::uint32_t io_thread_count, std::uint32_t worker_thread_count)
 {
     const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
     const auto local_time = std::chrono::zoned_time{std::chrono::current_zone(), now};
@@ -58,7 +58,7 @@ void Logger::Initialize(std::string_view app_name,
     LogMetrics(std::format("{} logger Initialized log_level={}", app_name, LogLevelName(log_level)));
 }
 
-bool Logger::ShouldLog(Level level) noexcept
+bool Logger::ShouldLog(Level level)
 {
     switch (g_log_level) {
     case LogLevel::kInfo:

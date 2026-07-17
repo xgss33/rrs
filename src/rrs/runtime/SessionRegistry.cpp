@@ -1,5 +1,8 @@
 #include "rrs/runtime/SessionRegistry.h"
 
+#include "rrs/core/Identifiers.h"
+#include "rrs/runtime/Session.h"
+
 #include <mutex>
 
 namespace rrs {

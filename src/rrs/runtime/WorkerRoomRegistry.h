@@ -1,8 +1,8 @@
 #pragma once
 
 #include "rrs/core/Identifiers.h"
-#include "rrs/simulation/Room.h"
 #include "rrs/runtime/Session.h"
+#include "rrs/simulation/Room.h"
 
 #include <chrono>
 #include <cstddef>
@@ -27,11 +27,11 @@ public:
                        std::chrono::nanoseconds tick_interval,
                        std::size_t room_capacity);
 
-    [[nodiscard]] Room* FindRoom(RoomId room_id);
+    Room* FindRoom(RoomId room_id);
     [[nodiscard]] Room& AssignRoomForJoin();
-    [[nodiscard]] const WorkerSessionBinding* FindBinding(SessionId session_id) const;
-    [[nodiscard]] Session MakeSession(SessionId session_id, const WorkerSessionBinding& binding) const;
-    [[nodiscard]] Room::Clock::time_point NextWakeTime(Room::Clock::time_point fallback) const;
+    const WorkerSessionBinding* FindBinding(SessionId session_id) const;
+    Session MakeSession(SessionId session_id, const WorkerSessionBinding& binding) const;
+    Room::Clock::time_point NextWakeTime(Room::Clock::time_point fallback) const;
 
     template <typename HandleSession>
     void ForEachActiveSessionInRoom(RoomId room_id, HandleSession handle_session) const
@@ -93,8 +93,8 @@ private:
         std::size_t session_count{0};
     };
 
-    [[nodiscard]] Room& CreateRoom();
-    [[nodiscard]] WorkerSessionBinding* FindMutableBinding(SessionId session_id);
+    Room& CreateRoom();
+    WorkerSessionBinding* FindMutableBinding(SessionId session_id);
 
     WorkerId worker_id_;
     std::chrono::nanoseconds tick_interval_;

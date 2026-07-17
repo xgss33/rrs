@@ -1,14 +1,15 @@
 #pragma once
 
 #include "rrs/core/Identifiers.h"
-#include "rrs/simulation/FoodEntity.h"
-#include "rrs/simulation/spatial/FoodSpatialIndex.h"
-#include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
-#include "rrs/simulation/PlayerInput.h"
-#include "rrs/simulation/PlayerEntity.h"
-#include "rrs/simulation/RoomSnapshot.h"
 #include "rrs/math/Vector2.h"
 #include "rrs/runtime/Session.h"
+#include "rrs/simulation/FoodEntity.h"
+#include "rrs/simulation/PlayerEntity.h"
+#include "rrs/simulation/PlayerInput.h"
+#include "rrs/simulation/RoomSnapshot.h"
+#include "rrs/simulation/spatial/FoodSpatialIndex.h"
+#include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
+#include "rrs/spatial/UniformGrid.h"
 
 #include <chrono>
 #include <cstddef>
@@ -25,9 +26,9 @@ public:
 
     Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanoseconds tick_interval);
 
-    [[nodiscard]] RoomId id() const noexcept { return room_id_; }
-    [[nodiscard]] Clock::time_point next_tick_time() const noexcept { return next_tick_time_; }
-    [[nodiscard]] std::size_t player_count() const noexcept { return players_.size(); }
+    RoomId id() const { return room_id_; }
+    Clock::time_point next_tick_time() const { return next_tick_time_; }
+    std::size_t player_count() const { return players_.size(); }
 
     enum class CommandType {
         kJoin,
@@ -70,6 +71,9 @@ private:
         PlayerInput input;
     };
 
+    static void ClampBallPosition(PlayerBall& ball);
+    static UniformGridLayout MakeRoomSpatialGridLayout();
+
     void InitializeFoods();
 
     [[nodiscard]] std::vector<Command> TakeCommandsForTick(Clock::time_point tick_start);
@@ -95,9 +99,9 @@ private:
     [[nodiscard]] RoomSnapshot BuildFullSnapshot() const;
     [[nodiscard]] RoomSnapshot BuildSnapshotWithPlayers() const;
 
-    [[nodiscard]] float CalculateBallSpeed(float radius) const;
-    [[nodiscard]] Vector2 FindSpawnPosition();
-    [[nodiscard]] PlayerEntity* FindPlayer(PlayerId player_id);
+    float CalculateBallSpeed(float radius) const;
+    Vector2 FindSpawnPosition();
+    PlayerEntity* FindPlayer(PlayerId player_id);
 
     RoomId room_id_;
     TickSeq tick_seq_{0};

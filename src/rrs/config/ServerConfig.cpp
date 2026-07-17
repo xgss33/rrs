@@ -1,5 +1,7 @@
 #include "rrs/config/ServerConfig.h"
 
+#include "rrs/observability/Logger.h"
+
 #include <charconv>
 #include <cstdint>
 #include <stdexcept>

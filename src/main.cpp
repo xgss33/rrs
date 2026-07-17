@@ -1,13 +1,13 @@
-#include "rrs/core/Identifiers.h"
 #include "rrs/config/ServerConfig.h"
+#include "rrs/core/Identifiers.h"
 #include "rrs/network/Acceptor.h"
 #include "rrs/network/IOThread.h"
+#include "rrs/observability/Logger.h"
 #include "rrs/observability/MetricsRegistry.h"
 #include "rrs/observability/MetricsReporter.h"
+#include "rrs/runtime/SessionRegistry.h"
 #include "rrs/runtime/WorkerChannels.h"
 #include "rrs/runtime/WorkerThread.h"
-#include "rrs/runtime/SessionRegistry.h"
-#include "rrs/observability/Logger.h"
 
 #include <chrono>
 #include <csignal>

@@ -1,6 +1,13 @@
 #include "rrs/simulation/RoomVisibility.h"
 
+#include "rrs/core/Identifiers.h"
+#include "rrs/math/Vector2.h"
+#include "rrs/simulation/FoodEntity.h"
+#include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/RoomRules.h"
+#include "rrs/simulation/spatial/FoodSpatialIndex.h"
+#include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
+#include "rrs/spatial/UniformGrid.h"
 
 #include <algorithm>
 #include <cstdlib>

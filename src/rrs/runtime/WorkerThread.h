@@ -1,10 +1,10 @@
 #pragma once
 
 #include "rrs/core/Identifiers.h"
-#include "rrs/simulation/Room.h"
-#include "rrs/runtime/WorkerRoomRegistry.h"
 #include "rrs/runtime/Session.h"
 #include "rrs/runtime/WorkerChannels.h"
+#include "rrs/runtime/WorkerRoomRegistry.h"
+#include "rrs/simulation/Room.h"
 
 #include <chrono>
 #include <cstddef>
@@ -31,7 +31,7 @@ public:
     WorkerThread(WorkerThread&&) = delete;
     WorkerThread& operator=(WorkerThread&&) = delete;
 
-    [[nodiscard]] WorkerInboxSender inbox_sender() noexcept { return WorkerInboxSender{inbox_}; }
+    WorkerInboxSender inbox_sender() { return WorkerInboxSender{inbox_}; }
     void SetIoInboxes(std::vector<IoInboxSender> io_inboxes);
 
     void Start();

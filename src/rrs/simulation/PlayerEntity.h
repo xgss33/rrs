@@ -24,7 +24,7 @@ struct PlayerEntity {
     std::array<PlayerBall, kMaxBallsPerPlayer> balls{};
 };
 
-[[nodiscard]] inline bool IsAlive(const PlayerEntity& player) noexcept
+inline bool IsAlive(const PlayerEntity& player)
 {
     return player.active_ball_mask != 0;
 }

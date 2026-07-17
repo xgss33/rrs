@@ -1,7 +1,7 @@
 #pragma once
 
-#include "rrs/simulation/FoodEntity.h"
 #include "rrs/math/Vector2.h"
+#include "rrs/simulation/FoodEntity.h"
 #include "rrs/spatial/UniformGrid.h"
 
 #include <cstdint>

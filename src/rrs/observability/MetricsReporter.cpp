@@ -1,16 +1,114 @@
 #include "rrs/observability/MetricsReporter.h"
+
 #include "rrs/core/Threading.h"
 #include "rrs/observability/Logger.h"
 #include "rrs/observability/MetricsRegistry.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
-#include <vector>
 #include <unistd.h>
+#include <vector>
 
 namespace rrs {
+
+namespace {
+
+struct ProcessCpuSample {
+    std::chrono::steady_clock::time_point sampled_at;
+    std::uint64_t cpu_time_ticks{0};
+};
+
+std::optional<ProcessCpuSample> ReadProcessCpuSample()
+{
+    auto stat_file = std::ifstream{"/proc/self/stat"};
+    auto line = std::string{};
+    if (!std::getline(stat_file, line)) {
+        return std::nullopt;
+    }
+
+    const auto command_end = line.rfind(')');
+    if (command_end == std::string::npos || command_end + 2 >= line.size()) {
+        return std::nullopt;
+    }
+
+    auto fields = std::vector<std::string>{};
+    auto stream = std::istringstream{line.substr(command_end + 2)};
+    auto field = std::string{};
+    while (stream >> field) {
+        fields.push_back(field);
+    }
+
+    constexpr std::size_t kUtimeIndex = 11;
+    constexpr std::size_t kStimeIndex = 12;
+    if (fields.size() <= kStimeIndex) {
+        return std::nullopt;
+    }
+
+    try {
+        const auto user_ticks = std::stoull(fields[kUtimeIndex]);
+        const auto system_ticks = std::stoull(fields[kStimeIndex]);
+        return ProcessCpuSample{
+            .sampled_at = std::chrono::steady_clock::now(),
+            .cpu_time_ticks = user_ticks + system_ticks,
+        };
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::uint64_t ReadProcessRssBytes()
+{
+    auto statm_file = std::ifstream{"/proc/self/statm"};
+    std::uint64_t ignored_total_pages = 0;
+    std::uint64_t resident_pages = 0;
+    statm_file >> ignored_total_pages >> resident_pages;
+
+    const auto page_size = ::sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) {
+        return 0;
+    }
+
+    return resident_pages * static_cast<std::uint64_t>(page_size);
+}
+
+double CalculateCpuPercent(const ProcessCpuSample& previous, const ProcessCpuSample& current)
+{
+    const auto ticks_per_second = ::sysconf(_SC_CLK_TCK);
+    if (ticks_per_second <= 0 || current.cpu_time_ticks < previous.cpu_time_ticks) {
+        return 0.0;
+    }
+
+    const auto elapsed_seconds = std::chrono::duration<double>(current.sampled_at - previous.sampled_at).count();
+    if (elapsed_seconds <= 0.0) {
+        return 0.0;
+    }
+
+    const auto process_seconds = static_cast<double>(current.cpu_time_ticks - previous.cpu_time_ticks)
+        / static_cast<double>(ticks_per_second);
+    return process_seconds / elapsed_seconds * 100.0;
+}
+
+std::string FormatWorkerValues(
+    const std::vector<WorkerTickMetrics>& metrics,
+    bool format_window_max)
+{
+    auto output = std::string{};
+    for (const auto& metric : metrics) {
+        if (!output.empty()) {
+            output.push_back(',');
+        }
+        output += std::to_string(metric.worker_id.value());
+        output.push_back(':');
+        output += std::to_string(format_window_max ? metric.tick_cost_us_max_5s : metric.tick_cost_us_last);
+    }
+    return output;
+}
+
+} // namespace
 
 MetricsReporter::MetricsReporter(MetricsRegistry& metrics, std::chrono::seconds report_interval)
     : metrics_(metrics)
@@ -103,92 +201,6 @@ void MetricsReporter::Run(std::stop_token stop_token)
         previous_cpu_sample = current_cpu_sample;
         previous_sample_time = now;
     }
-}
-
-std::optional<MetricsReporter::ProcessCpuSample> MetricsReporter::ReadProcessCpuSample()
-{
-    auto stat_file = std::ifstream{"/proc/self/stat"};
-    auto line = std::string{};
-    if (!std::getline(stat_file, line)) {
-        return std::nullopt;
-    }
-
-    const auto command_end = line.rfind(')');
-    if (command_end == std::string::npos || command_end + 2 >= line.size()) {
-        return std::nullopt;
-    }
-
-    auto fields = std::vector<std::string>{};
-    auto stream = std::istringstream{line.substr(command_end + 2)};
-    auto field = std::string{};
-    while (stream >> field) {
-        fields.push_back(field);
-    }
-
-    constexpr std::size_t kUtimeIndex = 11;
-    constexpr std::size_t kStimeIndex = 12;
-    if (fields.size() <= kStimeIndex) {
-        return std::nullopt;
-    }
-
-    try {
-        const auto user_ticks = std::stoull(fields[kUtimeIndex]);
-        const auto system_ticks = std::stoull(fields[kStimeIndex]);
-        return ProcessCpuSample{
-            .sampled_at = std::chrono::steady_clock::now(),
-            .cpu_time_ticks = user_ticks + system_ticks,
-        };
-    } catch (...) {
-        return std::nullopt;
-    }
-}
-
-std::uint64_t MetricsReporter::ReadProcessRssBytes()
-{
-    auto statm_file = std::ifstream{"/proc/self/statm"};
-    std::uint64_t ignored_total_pages = 0;
-    std::uint64_t resident_pages = 0;
-    statm_file >> ignored_total_pages >> resident_pages;
-
-    const auto page_size = ::sysconf(_SC_PAGESIZE);
-    if (page_size <= 0) {
-        return 0;
-    }
-
-    return resident_pages * static_cast<std::uint64_t>(page_size);
-}
-
-double MetricsReporter::CalculateCpuPercent(const ProcessCpuSample& previous, const ProcessCpuSample& current)
-{
-    const auto ticks_per_second = ::sysconf(_SC_CLK_TCK);
-    if (ticks_per_second <= 0 || current.cpu_time_ticks < previous.cpu_time_ticks) {
-        return 0.0;
-    }
-
-    const auto elapsed_seconds = std::chrono::duration<double>(current.sampled_at - previous.sampled_at).count();
-    if (elapsed_seconds <= 0.0) {
-        return 0.0;
-    }
-
-    const auto process_seconds = static_cast<double>(current.cpu_time_ticks - previous.cpu_time_ticks)
-        / static_cast<double>(ticks_per_second);
-    return process_seconds / elapsed_seconds * 100.0;
-}
-
-std::string MetricsReporter::FormatWorkerValues(
-    const std::vector<WorkerTickMetrics>& metrics,
-    bool format_window_max)
-{
-    auto output = std::string{};
-    for (const auto& metric : metrics) {
-        if (!output.empty()) {
-            output.push_back(',');
-        }
-        output += std::to_string(metric.worker_id.value());
-        output.push_back(':');
-        output += std::to_string(format_window_max ? metric.tick_cost_us_max_5s : metric.tick_cost_us_last);
-    }
-    return output;
 }
 
 } // namespace rrs

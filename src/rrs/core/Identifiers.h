@@ -13,10 +13,10 @@ public:
     using ValueType = std::uint64_t;
 
     constexpr StrongId() = default;
-    explicit constexpr StrongId(ValueType value) noexcept : value_(value) {}
+    explicit constexpr StrongId(ValueType value) : value_(value) {}
 
-    [[nodiscard]] constexpr ValueType value() const noexcept { return value_; }
-    [[nodiscard]] constexpr bool is_valid() const noexcept { return value_ != 0; }
+    constexpr ValueType value() const { return value_; }
+    constexpr bool is_valid() const { return value_ != 0; }
 
     friend constexpr auto operator<=>(const StrongId&, const StrongId&) = default;
 
@@ -46,7 +46,7 @@ namespace std {
 
 template <typename Tag>
 struct hash<rrs::StrongId<Tag>> {
-    [[nodiscard]] std::size_t operator()(rrs::StrongId<Tag> id) const noexcept
+    std::size_t operator()(rrs::StrongId<Tag> id) const noexcept
     {
         return std::hash<typename rrs::StrongId<Tag>::ValueType>{}(id.value());
     }

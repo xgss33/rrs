@@ -1,6 +1,15 @@
 #include "rrs/simulation/Room.h"
 
+#include "rrs/core/Identifiers.h"
+#include "rrs/math/Vector2.h"
+#include "rrs/runtime/Session.h"
+#include "rrs/simulation/FoodEntity.h"
+#include "rrs/simulation/PlayerEntity.h"
+#include "rrs/simulation/PlayerInput.h"
 #include "rrs/simulation/RoomRules.h"
+#include "rrs/simulation/RoomSnapshot.h"
+#include "rrs/simulation/spatial/FoodSpatialIndex.h"
+#include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 #include "rrs/spatial/UniformGrid.h"
 
 #include <algorithm>
@@ -17,17 +26,19 @@ namespace rrs {
 
 namespace {
 
-[[nodiscard]] constexpr std::uint16_t BallMask(std::size_t ball_index) noexcept
+constexpr std::uint16_t BallMask(std::size_t ball_index)
 {
     return static_cast<std::uint16_t>(1U << ball_index);
 }
 
-[[nodiscard]] bool IsBallActive(const PlayerEntity& player, std::size_t ball_index) noexcept
+bool IsBallActive(const PlayerEntity& player, std::size_t ball_index)
 {
     return (player.active_ball_mask & BallMask(ball_index)) != 0;
 }
 
-void ClampBallPosition(PlayerBall& ball)
+} // namespace
+
+void Room::ClampBallPosition(PlayerBall& ball)
 {
     ball.position.x = std::clamp(
         ball.position.x,
@@ -39,7 +50,7 @@ void ClampBallPosition(PlayerBall& ball)
         room_rules::kRoomHalfExtent - ball.radius);
 }
 
-UniformGridLayout MakeRoomSpatialGridLayout()
+UniformGridLayout Room::MakeRoomSpatialGridLayout()
 {
     return UniformGridLayout{
         Aabb{
@@ -55,8 +66,6 @@ UniformGridLayout MakeRoomSpatialGridLayout()
         room_rules::kSpatialGridCellSize,
     };
 }
-
-} // namespace
 
 Room::Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanoseconds tick_interval)
     : room_id_(room_id)

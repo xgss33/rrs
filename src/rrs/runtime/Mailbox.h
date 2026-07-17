@@ -59,7 +59,7 @@ template <typename T>
 class MailboxSender {
 public:
     MailboxSender() = default;
-    explicit MailboxSender(Mailbox<T>& mailbox) noexcept : mailbox_(&mailbox) {}
+    explicit MailboxSender(Mailbox<T>& mailbox) : mailbox_(&mailbox) {}
 
     [[nodiscard]] bool Push(T message) const
     {
