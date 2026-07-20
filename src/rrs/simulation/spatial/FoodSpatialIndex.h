@@ -3,10 +3,10 @@
 #include "rrs/math/Vector2.h"
 #include "rrs/simulation/FoodEntity.h"
 #include "rrs/spatial/UniformGrid.h"
+#include "rrs/spatial/UniformGridPointIndex.h"
 
 #include <cstdint>
 #include <span>
-#include <vector>
 
 namespace rrs {
 
@@ -14,12 +14,12 @@ class FoodSpatialIndex {
 public:
     explicit FoodSpatialIndex(UniformGridLayout layout);
 
-    void Rebuild(std::span<const FoodEntity> foods);
-    [[nodiscard]] std::span<const std::uint32_t> QueryCandidates(Vector2 center, float radius);
+    void Initialize(std::span<const FoodEntity> foods);
+    void Relocate(FoodIndex food_index, Vector2 position);
+    [[nodiscard]] std::span<const std::uint32_t> QueryCandidates(Vector2 center, float search_radius);
 
 private:
-    UniformGridIndex grid_;
-    std::vector<Aabb> food_bounds_;
+    UniformGridPointIndex grid_;
 };
 
 } // namespace rrs

@@ -2,8 +2,10 @@
 
 #include "rrs/math/Vector2.h"
 #include "rrs/simulation/FoodEntity.h"
-#include "rrs/simulation/RoomRules.h"
 #include "rrs/spatial/UniformGrid.h"
+
+#include <cstdint>
+#include <vector>
 
 namespace rrs {
 
@@ -12,20 +14,25 @@ FoodSpatialIndex::FoodSpatialIndex(UniformGridLayout layout)
 {
 }
 
-void FoodSpatialIndex::Rebuild(std::span<const FoodEntity> foods)
+void FoodSpatialIndex::Initialize(std::span<const FoodEntity> foods)
 {
-    food_bounds_.clear();
-    food_bounds_.reserve(foods.size());
+    auto food_positions = std::vector<Vector2>{};
+    food_positions.reserve(foods.size());
     for (const auto& food : foods) {
-        food_bounds_.push_back(AabbForCircle(food.position, room_rules::kFoodRadius));
+        food_positions.push_back(food.position);
     }
 
-    grid_.Rebuild(food_bounds_);
+    grid_.Rebuild(food_positions);
 }
 
-std::span<const std::uint32_t> FoodSpatialIndex::QueryCandidates(Vector2 center, float radius)
+void FoodSpatialIndex::Relocate(FoodIndex food_index, Vector2 position)
 {
-    return grid_.QueryCandidates(AabbForCircle(center, radius));
+    grid_.Relocate(static_cast<std::uint32_t>(food_index), position);
+}
+
+std::span<const std::uint32_t> FoodSpatialIndex::QueryCandidates(Vector2 center, float search_radius)
+{
+    return grid_.QueryCandidates(AabbForCircle(center, search_radius));
 }
 
 } // namespace rrs

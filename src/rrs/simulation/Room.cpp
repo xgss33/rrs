@@ -102,6 +102,7 @@ Room::Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanos
     respawn_delay_ticks_ = static_cast<TickSeq>(std::max<std::int64_t>(1, respawn_delay_ns / tick_interval_ns));
     match_duration_ticks_ = static_cast<TickSeq>(std::max<std::int64_t>(1, match_duration_ns / tick_interval_ns));
     InitializeFoods();
+    food_spatial_index_.Initialize(foods_);
 }
 
 void Room::EnqueueCommand(Command command)
@@ -341,8 +342,6 @@ void Room::SplitPlayer(PlayerEntity& player)
 
 void Room::ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates)
 {
-    food_spatial_index_.Rebuild(foods_);
-
     auto consumed_food_flags = std::bitset<room_rules::kFoodCount>{};
     std::uniform_real_distribution<float> food_position_distribution{
         -room_rules::kRoomHalfExtent + room_rules::kFoodRadius,
@@ -357,7 +356,7 @@ void Room::ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates)
 
             auto& ball = player.balls[ball_index];
             const auto eat_distance = ball.radius + room_rules::kFoodRadius;
-            for (const auto food_index : food_spatial_index_.QueryCandidates(ball.position, ball.radius)) {
+            for (const auto food_index : food_spatial_index_.QueryCandidates(ball.position, eat_distance)) {
                 if (consumed_food_flags.test(food_index)) {
                     continue;
                 }
@@ -379,10 +378,12 @@ void Room::ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates)
         if (!consumed_food_flags.test(food_index)) {
             continue;
         }
-        foods_[food_index].position = Vector2{
+        const auto new_position = Vector2{
             .x = food_position_distribution(rng_),
             .y = food_position_distribution(rng_),
         };
+        foods_[food_index].position = new_position;
+        food_spatial_index_.Relocate(static_cast<FoodIndex>(food_index), new_position);
         food_updates.push_back(MakeFoodSnapshotUpdate(food_index, foods_[food_index]));
     }
 }
