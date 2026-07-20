@@ -351,10 +351,6 @@ void Room::SplitPlayer(PlayerEntity& player)
 void Room::ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates)
 {
     auto consumed_food_flags = std::bitset<room_rules::kFoodCount>{};
-    std::uniform_real_distribution<float> food_position_distribution{
-        -room_rules::kRoomHalfExtent + room_rules::kFoodRadius,
-        room_rules::kRoomHalfExtent - room_rules::kFoodRadius,
-    };
 
     for (auto& player : players_) {
         for (std::size_t ball_index = 0; ball_index < kMaxBallsPerPlayer; ++ball_index) {
@@ -382,6 +378,14 @@ void Room::ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates)
         }
     }
 
+    if (consumed_food_flags.none()) {
+        return;
+    }
+
+    std::uniform_real_distribution<float> food_position_distribution{
+        -room_rules::kRoomHalfExtent + room_rules::kFoodRadius,
+        room_rules::kRoomHalfExtent - room_rules::kFoodRadius,
+    };
     for (std::size_t food_index = 0; food_index < foods_.size(); ++food_index) {
         if (!consumed_food_flags.test(food_index)) {
             continue;

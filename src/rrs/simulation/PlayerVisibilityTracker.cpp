@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <utility>
 
 namespace rrs {
 
@@ -51,10 +50,9 @@ const PlayerVisibilitySet& PlayerVisibilityTracker::UpdateForObserver(
     PlayerBallSpatialIndex& player_ball_spatial_index)
 {
     const auto& observer = players[observer_player_index];
-    auto iterator = visibility_by_observer_.find(observer.player_id);
-    const auto* previous = iterator != visibility_by_observer_.end()
-        ? &iterator->second
-        : nullptr;
+    auto [iterator, inserted] = visibility_by_observer_.try_emplace(observer.player_id);
+    auto& visibility = iterator->second;
+    const auto* previous = inserted ? nullptr : &visibility;
 
     working_ball_masks_.assign(players.size(), 0);
     working_ball_masks_[observer_player_index] = observer.active_ball_mask;
@@ -75,6 +73,11 @@ const PlayerVisibilitySet& PlayerVisibilityTracker::UpdateForObserver(
             }
 
             const auto target_ball_index = static_cast<std::size_t>(candidate.ball_index);
+            const auto target_ball_mask = static_cast<std::uint16_t>(1U << target_ball_index);
+            if ((working_ball_masks_[target_player_index] & target_ball_mask) != 0) {
+                continue;
+            }
+
             const auto& target_player = players[target_player_index];
             const auto& target_ball = target_player.balls[target_ball_index];
             const auto visibility_distance = WasPlayerBallVisible(
@@ -85,32 +88,27 @@ const PlayerVisibilitySet& PlayerVisibilityTracker::UpdateForObserver(
                 : room_rules::kAoiEnterDistance;
             if (IsVisibleFromBall(observer_ball, target_ball.position, target_ball.radius, visibility_distance)) {
                 working_ball_masks_[target_player_index] = static_cast<std::uint16_t>(
-                    working_ball_masks_[target_player_index] | static_cast<std::uint16_t>(1U << target_ball_index));
+                    working_ball_masks_[target_player_index] | target_ball_mask);
             }
         }
-
     }
 
-    auto next = PlayerVisibilitySet{};
-    next.players.reserve(players.size());
+    visibility.players.clear();
+    visibility.players.reserve(players.size());
     for (std::size_t player_index = 0; player_index < players.size(); ++player_index) {
         if (player_index != observer_player_index && working_ball_masks_[player_index] == 0) {
             continue;
         }
-        next.players.push_back(VisiblePlayerBallMask{
+        visibility.players.push_back(VisiblePlayerBallMask{
             .player_id = players[player_index].player_id,
             .ball_mask = working_ball_masks_[player_index],
         });
     }
-    std::sort(next.players.begin(), next.players.end(), [](const VisiblePlayerBallMask& left, const VisiblePlayerBallMask& right) {
+    std::sort(visibility.players.begin(), visibility.players.end(), [](const VisiblePlayerBallMask& left, const VisiblePlayerBallMask& right) {
         return left.player_id < right.player_id;
     });
 
-    if (iterator == visibility_by_observer_.end()) {
-        iterator = visibility_by_observer_.emplace(observer.player_id, PlayerVisibilitySet{}).first;
-    }
-    iterator->second = std::move(next);
-    return iterator->second;
+    return visibility;
 }
 
 void PlayerVisibilityTracker::RemoveObserver(PlayerId player_id)
