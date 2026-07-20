@@ -3,7 +3,7 @@
 #include "rrs/core/Identifiers.h"
 #include "rrs/math/Vector2.h"
 #include "rrs/simulation/PlayerEntity.h"
-#include "rrs/simulation/RoomVisibility.h"
+#include "rrs/simulation/PlayerVisibilityTracker.h"
 #include "rrs/synchronization/SnapshotUpdate.h"
 
 #include <cstdlib>
@@ -38,12 +38,12 @@ rrs::PlayerEntity MakePlayer(rrs::PlayerId player_id, float x, std::uint16_t bal
     return player;
 }
 
-rrs::VisibleEntitySet MakeVisible(std::uint16_t target_ball_mask = 1)
+rrs::PlayerVisibilitySet MakeVisible(std::uint16_t target_ball_mask = 1)
 {
-    return rrs::VisibleEntitySet{
+    return rrs::PlayerVisibilitySet{
         .players = {
-            rrs::VisiblePlayerBalls{.player_id = rrs::PlayerId{1}, .ball_mask = 1},
-            rrs::VisiblePlayerBalls{.player_id = rrs::PlayerId{2}, .ball_mask = target_ball_mask},
+            rrs::VisiblePlayerBallMask{.player_id = rrs::PlayerId{1}, .ball_mask = 1},
+            rrs::VisiblePlayerBallMask{.player_id = rrs::PlayerId{2}, .ball_mask = target_ball_mask},
         },
     };
 }
@@ -77,10 +77,10 @@ void TestPlayerBallChangesAndRemoval()
         MakePlayer(rrs::PlayerId{1}, 0.0F),
         MakePlayer(rrs::PlayerId{2}, 100.0F, 3),
     };
-    auto visible = rrs::VisibleEntitySet{
+    auto visible = rrs::PlayerVisibilitySet{
         .players = {
-            rrs::VisiblePlayerBalls{.player_id = rrs::PlayerId{1}, .ball_mask = 1},
-            rrs::VisiblePlayerBalls{.player_id = rrs::PlayerId{2}, .ball_mask = 3},
+            rrs::VisiblePlayerBallMask{.player_id = rrs::PlayerId{1}, .ball_mask = 1},
+            rrs::VisiblePlayerBallMask{.player_id = rrs::PlayerId{2}, .ball_mask = 3},
         },
     };
     auto tracker = rrs::SnapshotDeltaTracker{};
@@ -108,8 +108,8 @@ void TestPlayerBallChangesAndRemoval()
 void TestWinnerAndObserverReset()
 {
     const auto players = std::vector<rrs::PlayerEntity>{MakePlayer(rrs::PlayerId{1}, 0.0F)};
-    auto visible = rrs::VisibleEntitySet{
-        .players = {rrs::VisiblePlayerBalls{.player_id = rrs::PlayerId{1}, .ball_mask = 1}},
+    auto visible = rrs::PlayerVisibilitySet{
+        .players = {rrs::VisiblePlayerBallMask{.player_id = rrs::PlayerId{1}, .ball_mask = 1}},
     };
     auto tracker = rrs::SnapshotDeltaTracker{};
     const auto initial = tracker.BuildUpdate(rrs::PlayerId{1}, 1, visible, players, std::nullopt, true);
@@ -130,8 +130,8 @@ void TestWinnerAndObserverReset()
 void TestDeadObserverEntry()
 {
     const auto players = std::vector<rrs::PlayerEntity>{MakePlayer(rrs::PlayerId{1}, 0.0F, 0)};
-    const auto visible = rrs::VisibleEntitySet{
-        .players = {rrs::VisiblePlayerBalls{.player_id = rrs::PlayerId{1}, .ball_mask = 0}},
+    const auto visible = rrs::PlayerVisibilitySet{
+        .players = {rrs::VisiblePlayerBallMask{.player_id = rrs::PlayerId{1}, .ball_mask = 0}},
     };
     auto tracker = rrs::SnapshotDeltaTracker{};
     const auto full = tracker.BuildUpdate(rrs::PlayerId{1}, 1, visible, players, std::nullopt, true);

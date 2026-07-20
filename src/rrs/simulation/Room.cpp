@@ -7,7 +7,7 @@
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/PlayerInput.h"
 #include "rrs/simulation/RoomRules.h"
-#include "rrs/simulation/RoomVisibility.h"
+#include "rrs/simulation/PlayerVisibilityTracker.h"
 #include "rrs/simulation/spatial/FoodSpatialIndex.h"
 #include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 #include "rrs/spatial/UniformGrid.h"
@@ -56,21 +56,7 @@ FoodSnapshotUpdate MakeFoodSnapshotUpdate(std::size_t food_index, const FoodEnti
     };
 }
 
-} // namespace
-
-void Room::ClampBallPosition(PlayerBall& ball)
-{
-    ball.position.x = std::clamp(
-        ball.position.x,
-        -room_rules::kRoomHalfExtent + ball.radius,
-        room_rules::kRoomHalfExtent - ball.radius);
-    ball.position.y = std::clamp(
-        ball.position.y,
-        -room_rules::kRoomHalfExtent + ball.radius,
-        room_rules::kRoomHalfExtent - ball.radius);
-}
-
-UniformGridLayout Room::MakeRoomSpatialGridLayout()
+UniformGridLayout MakeRoomGridLayout()
 {
     return UniformGridLayout{
         Aabb{
@@ -87,13 +73,34 @@ UniformGridLayout Room::MakeRoomSpatialGridLayout()
     };
 }
 
+float CalculatePlayerBallSpeed(float radius)
+{
+    const auto ratio = room_rules::kSpeedReferenceRadius / radius;
+    const auto speed = room_rules::kBaseSpeed * std::pow(ratio, room_rules::kSpeedRadiusExponent);
+    return std::clamp(speed, room_rules::kMinSpeed, room_rules::kMaxSpeed);
+}
+
+} // namespace
+
+void Room::ClampBallPosition(PlayerBall& ball)
+{
+    ball.position.x = std::clamp(
+        ball.position.x,
+        -room_rules::kRoomHalfExtent + ball.radius,
+        room_rules::kRoomHalfExtent - ball.radius);
+    ball.position.y = std::clamp(
+        ball.position.y,
+        -room_rules::kRoomHalfExtent + ball.radius,
+        room_rules::kRoomHalfExtent - ball.radius);
+}
+
 Room::Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanoseconds tick_interval)
     : room_id_(room_id)
     , next_tick_time_(first_tick_time)
     , tick_interval_(tick_interval)
     , rng_(static_cast<std::mt19937::result_type>(room_id.value() * 2654435761ULL))
-    , food_spatial_index_(MakeRoomSpatialGridLayout())
-    , player_ball_spatial_index_(MakeRoomSpatialGridLayout())
+    , food_spatial_index_(MakeRoomGridLayout())
+    , player_ball_spatial_index_(MakeRoomGridLayout())
 {
     const auto tick_interval_ns = tick_interval_.count();
     const auto respawn_delay_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(room_rules::kRespawnDelay).count();
@@ -117,11 +124,11 @@ Room::TickResult Room::Tick()
 
     ++tick_seq_;
     const auto player_inputs = ProcessCommands(TakeCommandsForTick(tick_start), result);
-    ApplyPlayerInputs(player_inputs);
+    ApplyMovementInputs(player_inputs);
 
     if (!match_over_) {
-        SplitPlayers(player_inputs);
-        MovePlayers();
+        ApplySplitInputs(player_inputs);
+        MovePlayerBalls();
         ResolveFoodEating(result.food_updates);
         ResolvePlayerBallEating();
         RespawnDuePlayers();
@@ -134,7 +141,7 @@ Room::TickResult Room::Tick()
             result.snapshot_updates.begin(),
             result.snapshot_updates.end(),
             [](const ObserverSnapshotUpdate& update) { return update.update.full_reset; })) {
-        result.food_baseline = BuildFoodBaseline();
+        result.food_baseline = BuildFoodSnapshotBaseline();
     }
 
     next_tick_time_ += tick_interval_;
@@ -232,7 +239,7 @@ void Room::JoinPlayer(const Session& session, TickResult& result)
             .balls = {},
         };
         player.balls[0] = PlayerBall{
-            .position = FindSpawnPosition(),
+            .position = FindPlayerSpawnPosition(),
             .radius = room_rules::kInitialPlayerRadius,
         };
         players_.push_back(player);
@@ -252,7 +259,7 @@ void Room::ReconnectPlayer(const Session& session, TickResult& result)
     });
 }
 
-void Room::ApplyPlayerInputs(const std::vector<AggregatedPlayerInput>& inputs)
+void Room::ApplyMovementInputs(const std::vector<AggregatedPlayerInput>& inputs)
 {
     for (const auto& input : inputs) {
         auto* player = FindPlayer(input.player_id);
@@ -275,7 +282,7 @@ void Room::LeavePlayer(const Session& session, TickResult& result)
     std::erase_if(players_, [player_id = session.player_id](const PlayerEntity& player) {
         return player.player_id == player_id;
     });
-    room_visibility_.RemoveObserver(session.player_id);
+    player_visibility_tracker_.RemoveObserver(session.player_id);
     snapshot_delta_tracker_.RemoveObserver(session.player_id);
 
     result.events.push_back(Event{
@@ -284,7 +291,7 @@ void Room::LeavePlayer(const Session& session, TickResult& result)
     });
 }
 
-void Room::SplitPlayers(const std::vector<AggregatedPlayerInput>& inputs)
+void Room::ApplySplitInputs(const std::vector<AggregatedPlayerInput>& inputs)
 {
     for (const auto& input : inputs) {
         if ((input.input.input_flags & PlayerInput::kSplitFlag) == 0) {
@@ -388,7 +395,7 @@ void Room::ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates)
     }
 }
 
-void Room::MovePlayers()
+void Room::MovePlayerBalls()
 {
     const auto delta_seconds = static_cast<float>(tick_interval_.count()) / 1'000'000'000.0F;
     for (auto& player : players_) {
@@ -398,7 +405,7 @@ void Room::MovePlayers()
             }
 
             auto& ball = player.balls[ball_index];
-            const auto speed = CalculateBallSpeed(ball.radius);
+            const auto speed = CalculatePlayerBallSpeed(ball.radius);
             ball.position.x += player.input_direction.x * speed * delta_seconds;
             ball.position.y += player.input_direction.y * speed * delta_seconds;
             ClampBallPosition(ball);
@@ -496,7 +503,7 @@ void Room::RespawnDuePlayers()
 
         player.input_direction = {};
         player.balls[0] = PlayerBall{
-            .position = FindSpawnPosition(),
+            .position = FindPlayerSpawnPosition(),
             .radius = room_rules::kInitialPlayerRadius,
         };
         player.active_ball_mask = BallMask(0);
@@ -542,14 +549,14 @@ std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(
 
     for (std::size_t observer_player_index = 0; observer_player_index < players_.size(); ++observer_player_index) {
         const auto observer_player_id = players_[observer_player_index].player_id;
-        const auto& visible_entities = room_visibility_.Update(
+        const auto& player_visibility = player_visibility_tracker_.UpdateForObserver(
             observer_player_index,
             players_,
             player_ball_spatial_index_);
         auto update = snapshot_delta_tracker_.BuildUpdate(
             observer_player_id,
             tick_seq_,
-            visible_entities,
+            player_visibility,
             players_,
             winner,
             RequiresFullSnapshot(events, observer_player_id));
@@ -572,7 +579,7 @@ std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(
     return updates;
 }
 
-std::vector<FoodSnapshotUpdate> Room::BuildFoodBaseline() const
+std::vector<FoodSnapshotUpdate> Room::BuildFoodSnapshotBaseline() const
 {
     auto baseline = std::vector<FoodSnapshotUpdate>{};
     baseline.reserve(foods_.size());
@@ -582,14 +589,7 @@ std::vector<FoodSnapshotUpdate> Room::BuildFoodBaseline() const
     return baseline;
 }
 
-float Room::CalculateBallSpeed(float radius) const
-{
-    const auto ratio = room_rules::kSpeedReferenceRadius / radius;
-    const auto speed = room_rules::kBaseSpeed * std::pow(ratio, room_rules::kSpeedRadiusExponent);
-    return std::clamp(speed, room_rules::kMinSpeed, room_rules::kMaxSpeed);
-}
-
-Vector2 Room::FindSpawnPosition()
+Vector2 Room::FindPlayerSpawnPosition()
 {
     std::uniform_real_distribution<float> distribution{
         -room_rules::kRoomHalfExtent + room_rules::kInitialPlayerRadius,

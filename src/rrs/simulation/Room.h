@@ -6,7 +6,7 @@
 #include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/PlayerInput.h"
-#include "rrs/simulation/RoomVisibility.h"
+#include "rrs/simulation/PlayerVisibilityTracker.h"
 #include "rrs/simulation/spatial/FoodSpatialIndex.h"
 #include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 #include "rrs/spatial/UniformGrid.h"
@@ -79,7 +79,6 @@ private:
     };
 
     static void ClampBallPosition(PlayerBall& ball);
-    static UniformGridLayout MakeRoomSpatialGridLayout();
 
     void InitializeFoods();
 
@@ -87,12 +86,12 @@ private:
     [[nodiscard]] std::vector<AggregatedPlayerInput> ProcessCommands(const std::vector<Command>& commands, TickResult& result);
     void JoinPlayer(const Session& session, TickResult& result);
     void ReconnectPlayer(const Session& session, TickResult& result);
-    void ApplyPlayerInputs(const std::vector<AggregatedPlayerInput>& inputs);
+    void ApplyMovementInputs(const std::vector<AggregatedPlayerInput>& inputs);
     void LeavePlayer(const Session& session, TickResult& result);
 
-    void SplitPlayers(const std::vector<AggregatedPlayerInput>& inputs);
+    void ApplySplitInputs(const std::vector<AggregatedPlayerInput>& inputs);
     void SplitPlayer(PlayerEntity& player);
-    void MovePlayers();
+    void MovePlayerBalls();
     void ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates);
     void ResolvePlayerBallEating();
     [[nodiscard]] bool TryEatPlayerBall(PlayerEntity& attacker,
@@ -105,10 +104,9 @@ private:
     [[nodiscard]] std::vector<ObserverSnapshotUpdate> BuildSnapshotUpdates(
         const std::vector<Event>& events,
         bool has_food_updates);
-    [[nodiscard]] std::vector<FoodSnapshotUpdate> BuildFoodBaseline() const;
+    [[nodiscard]] std::vector<FoodSnapshotUpdate> BuildFoodSnapshotBaseline() const;
 
-    float CalculateBallSpeed(float radius) const;
-    Vector2 FindSpawnPosition();
+    Vector2 FindPlayerSpawnPosition();
     PlayerEntity* FindPlayer(PlayerId player_id);
 
     RoomId room_id_;
@@ -124,7 +122,7 @@ private:
     std::vector<FoodEntity> foods_;
     FoodSpatialIndex food_spatial_index_;
     PlayerBallSpatialIndex player_ball_spatial_index_;
-    RoomVisibility room_visibility_;
+    PlayerVisibilityTracker player_visibility_tracker_;
     SnapshotDeltaTracker snapshot_delta_tracker_;
     std::vector<Command> pending_commands_;
 

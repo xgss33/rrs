@@ -2,7 +2,7 @@
 
 #include "rrs/core/Identifiers.h"
 #include "rrs/simulation/PlayerEntity.h"
-#include "rrs/simulation/RoomVisibility.h"
+#include "rrs/simulation/PlayerVisibilityTracker.h"
 #include "rrs/synchronization/SnapshotUpdate.h"
 
 #include <optional>
@@ -17,7 +17,7 @@ public:
     [[nodiscard]] std::optional<SnapshotUpdate> BuildUpdate(
         PlayerId observer_player_id,
         TickSeq tick_seq,
-        const VisibleEntitySet& visible_entities,
+        const PlayerVisibilitySet& player_visibility,
         std::span<const PlayerEntity> players,
         std::optional<PlayerId> winner_player_id,
         bool full_reset);

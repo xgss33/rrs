@@ -1,4 +1,4 @@
-#include "rrs/simulation/RoomVisibility.h"
+#include "rrs/simulation/PlayerVisibilityTracker.h"
 
 #include "rrs/core/Identifiers.h"
 #include "rrs/math/Vector2.h"
@@ -15,7 +15,7 @@ namespace rrs {
 
 namespace {
 
-bool WasPlayerBallVisible(const VisibleEntitySet* previous, PlayerId player_id, std::size_t ball_index)
+bool WasPlayerBallVisible(const PlayerVisibilitySet* previous, PlayerId player_id, std::size_t ball_index)
 {
     if (previous == nullptr) {
         return false;
@@ -25,7 +25,7 @@ bool WasPlayerBallVisible(const VisibleEntitySet* previous, PlayerId player_id, 
         previous->players.begin(),
         previous->players.end(),
         player_id,
-        [](const VisiblePlayerBalls& player, PlayerId id) {
+        [](const VisiblePlayerBallMask& player, PlayerId id) {
             return player.player_id < id;
         });
     return iterator != previous->players.end()
@@ -45,19 +45,19 @@ bool IsVisibleFromBall(
 
 } // namespace
 
-const VisibleEntitySet& RoomVisibility::Update(
+const PlayerVisibilitySet& PlayerVisibilityTracker::UpdateForObserver(
     std::size_t observer_player_index,
     std::span<const PlayerEntity> players,
     PlayerBallSpatialIndex& player_ball_spatial_index)
 {
     const auto& observer = players[observer_player_index];
-    const auto previous_iterator = visible_entities_by_observer_.find(observer.player_id);
-    const auto* previous = previous_iterator != visible_entities_by_observer_.end()
-        ? &previous_iterator->second
+    auto iterator = visibility_by_observer_.find(observer.player_id);
+    const auto* previous = iterator != visibility_by_observer_.end()
+        ? &iterator->second
         : nullptr;
 
-    visible_ball_masks_.assign(players.size(), 0);
-    visible_ball_masks_[observer_player_index] = observer.active_ball_mask;
+    working_ball_masks_.assign(players.size(), 0);
+    working_ball_masks_[observer_player_index] = observer.active_ball_mask;
 
     for (std::size_t observer_ball_index = 0; observer_ball_index < kMaxBallsPerPlayer; ++observer_ball_index) {
         const auto observer_ball_mask = static_cast<std::uint16_t>(1U << observer_ball_index);
@@ -84,39 +84,38 @@ const VisibleEntitySet& RoomVisibility::Update(
                 ? room_rules::kAoiLeaveDistance
                 : room_rules::kAoiEnterDistance;
             if (IsVisibleFromBall(observer_ball, target_ball.position, target_ball.radius, visibility_distance)) {
-                visible_ball_masks_[target_player_index] = static_cast<std::uint16_t>(
-                    visible_ball_masks_[target_player_index] | static_cast<std::uint16_t>(1U << target_ball_index));
+                working_ball_masks_[target_player_index] = static_cast<std::uint16_t>(
+                    working_ball_masks_[target_player_index] | static_cast<std::uint16_t>(1U << target_ball_index));
             }
         }
 
     }
 
-    auto next = VisibleEntitySet{};
+    auto next = PlayerVisibilitySet{};
     next.players.reserve(players.size());
     for (std::size_t player_index = 0; player_index < players.size(); ++player_index) {
-        if (player_index != observer_player_index && visible_ball_masks_[player_index] == 0) {
+        if (player_index != observer_player_index && working_ball_masks_[player_index] == 0) {
             continue;
         }
-        next.players.push_back(VisiblePlayerBalls{
+        next.players.push_back(VisiblePlayerBallMask{
             .player_id = players[player_index].player_id,
-            .ball_mask = visible_ball_masks_[player_index],
+            .ball_mask = working_ball_masks_[player_index],
         });
     }
-    std::sort(next.players.begin(), next.players.end(), [](const VisiblePlayerBalls& left, const VisiblePlayerBalls& right) {
+    std::sort(next.players.begin(), next.players.end(), [](const VisiblePlayerBallMask& left, const VisiblePlayerBallMask& right) {
         return left.player_id < right.player_id;
     });
 
-    auto iterator = visible_entities_by_observer_.find(observer.player_id);
-    if (iterator == visible_entities_by_observer_.end()) {
-        iterator = visible_entities_by_observer_.emplace(observer.player_id, VisibleEntitySet{}).first;
+    if (iterator == visibility_by_observer_.end()) {
+        iterator = visibility_by_observer_.emplace(observer.player_id, PlayerVisibilitySet{}).first;
     }
     iterator->second = std::move(next);
     return iterator->second;
 }
 
-void RoomVisibility::RemoveObserver(PlayerId player_id)
+void PlayerVisibilityTracker::RemoveObserver(PlayerId player_id)
 {
-    visible_entities_by_observer_.erase(player_id);
+    visibility_by_observer_.erase(player_id);
 }
 
 } // namespace rrs

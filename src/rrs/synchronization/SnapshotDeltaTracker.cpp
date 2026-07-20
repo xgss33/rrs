@@ -2,7 +2,7 @@
 
 #include "rrs/core/Identifiers.h"
 #include "rrs/simulation/PlayerEntity.h"
-#include "rrs/simulation/RoomVisibility.h"
+#include "rrs/simulation/PlayerVisibilityTracker.h"
 #include "rrs/synchronization/SnapshotUpdate.h"
 
 #include <algorithm>
@@ -36,14 +36,14 @@ bool HasPayloadChanges(const SnapshotUpdate& update)
 std::optional<SnapshotUpdate> SnapshotDeltaTracker::BuildUpdate(
     PlayerId observer_player_id,
     TickSeq tick_seq,
-    const VisibleEntitySet& visible_entities,
+    const PlayerVisibilitySet& player_visibility,
     std::span<const PlayerEntity> players,
     std::optional<PlayerId> winner_player_id,
     bool full_reset)
 {
     auto current = ObserverSnapshotState{};
-    current.players.reserve(visible_entities.players.size());
-    for (const auto& visible_player : visible_entities.players) {
+    current.players.reserve(player_visibility.players.size());
+    for (const auto& visible_player : player_visibility.players) {
         const auto& player = FindPlayer(players, visible_player.player_id);
         auto state = PlayerSnapshotState{
             .player_id = player.player_id,

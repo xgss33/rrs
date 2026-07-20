@@ -1,4 +1,4 @@
-#include "rrs/simulation/RoomVisibility.h"
+#include "rrs/simulation/PlayerVisibilityTracker.h"
 
 #include "rrs/core/Identifiers.h"
 #include "rrs/math/Vector2.h"
@@ -33,12 +33,12 @@ rrs::UniformGridLayout MakeLayout()
     return rrs::UniformGridLayout{kRoomBounds, rrs::room_rules::kSpatialGridCellSize};
 }
 
-const rrs::VisiblePlayerBalls* FindVisiblePlayer(const rrs::VisibleEntitySet& visible, rrs::PlayerId player_id)
+const rrs::VisiblePlayerBallMask* FindVisiblePlayer(const rrs::PlayerVisibilitySet& visible, rrs::PlayerId player_id)
 {
     const auto iterator = std::find_if(
         visible.players.begin(),
         visible.players.end(),
-        [player_id](const rrs::VisiblePlayerBalls& player) {
+        [player_id](const rrs::VisiblePlayerBallMask& player) {
             return player.player_id == player_id;
         });
     return iterator != visible.players.end() ? &(*iterator) : nullptr;
@@ -75,8 +75,8 @@ void TestMultiBallUnionAndPerBallFiltering()
     auto player_index = rrs::PlayerBallSpatialIndex{MakeLayout()};
     player_index.Rebuild(players);
 
-    auto visibility = rrs::RoomVisibility{};
-    const auto& visible = visibility.Update(0, players, player_index);
+    auto visibility = rrs::PlayerVisibilityTracker{};
+    const auto& visible = visibility.UpdateForObserver(0, players, player_index);
     const auto* self = FindVisiblePlayer(visible, rrs::PlayerId{1});
     const auto* target = FindVisiblePlayer(visible, rrs::PlayerId{2});
     Expect(self != nullptr && self->ball_mask == players[0].active_ball_mask, "all observer balls stay visible");
@@ -101,19 +101,19 @@ void TestEnterLeaveHysteresisAndObserverReset()
     };
 
     auto player_index = rrs::PlayerBallSpatialIndex{MakeLayout()};
-    auto visibility = rrs::RoomVisibility{};
+    auto visibility = rrs::PlayerVisibilityTracker{};
 
     player_index.Rebuild(players);
-    const auto& entered = visibility.Update(0, players, player_index);
+    const auto& entered = visibility.UpdateForObserver(0, players, player_index);
     Expect(FindVisiblePlayer(entered, rrs::PlayerId{2}) != nullptr, "target enters at enter distance");
 
     players[1].balls[0].position.x = 430.0F;
     player_index.Rebuild(players);
-    const auto& retained = visibility.Update(0, players, player_index);
+    const auto& retained = visibility.UpdateForObserver(0, players, player_index);
     Expect(FindVisiblePlayer(retained, rrs::PlayerId{2}) != nullptr, "target remains inside leave distance");
 
     visibility.RemoveObserver(rrs::PlayerId{1});
-    const auto& reset = visibility.Update(0, players, player_index);
+    const auto& reset = visibility.UpdateForObserver(0, players, player_index);
     Expect(FindVisiblePlayer(reset, rrs::PlayerId{2}) == nullptr, "reset target must satisfy enter distance again");
 }
 
@@ -125,8 +125,8 @@ void TestDeadObserverStillHasOwnPlayerEntry()
     auto player_index = rrs::PlayerBallSpatialIndex{MakeLayout()};
     player_index.Rebuild(players);
 
-    auto visibility = rrs::RoomVisibility{};
-    const auto& visible = visibility.Update(0, players, player_index);
+    auto visibility = rrs::PlayerVisibilityTracker{};
+    const auto& visible = visibility.UpdateForObserver(0, players, player_index);
     const auto* self = FindVisiblePlayer(visible, rrs::PlayerId{1});
     Expect(self != nullptr && self->ball_mask == 0, "dead observer keeps an empty self entry");
 }
@@ -138,6 +138,6 @@ int main()
     TestMultiBallUnionAndPerBallFiltering();
     TestEnterLeaveHysteresisAndObserverReset();
     TestDeadObserverStillHasOwnPlayerEntry();
-    std::cout << "RoomVisibility tests passed\n";
+    std::cout << "PlayerVisibilityTracker tests passed\n";
     return EXIT_SUCCESS;
 }

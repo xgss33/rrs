@@ -12,18 +12,18 @@
 
 namespace rrs {
 
-struct VisiblePlayerBalls {
+struct VisiblePlayerBallMask {
     PlayerId player_id;
     std::uint16_t ball_mask{0};
 };
 
-struct VisibleEntitySet {
-    std::vector<VisiblePlayerBalls> players;
+struct PlayerVisibilitySet {
+    std::vector<VisiblePlayerBallMask> players;
 };
 
-class RoomVisibility {
+class PlayerVisibilityTracker {
 public:
-    [[nodiscard]] const VisibleEntitySet& Update(
+    [[nodiscard]] const PlayerVisibilitySet& UpdateForObserver(
         std::size_t observer_player_index,
         std::span<const PlayerEntity> players,
         PlayerBallSpatialIndex& player_ball_spatial_index);
@@ -31,8 +31,8 @@ public:
     void RemoveObserver(PlayerId player_id);
 
 private:
-    std::unordered_map<PlayerId, VisibleEntitySet> visible_entities_by_observer_;
-    std::vector<std::uint16_t> visible_ball_masks_;
+    std::unordered_map<PlayerId, PlayerVisibilitySet> visibility_by_observer_;
+    std::vector<std::uint16_t> working_ball_masks_;
 };
 
 } // namespace rrs

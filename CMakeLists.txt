@@ -35,7 +35,7 @@ add_executable(rrs
     src/rrs/runtime/WorkerChannels.cpp
     src/rrs/runtime/WorkerRoomRegistry.cpp
     src/rrs/runtime/WorkerThread.cpp
-    src/rrs/simulation/RoomVisibility.cpp
+    src/rrs/simulation/PlayerVisibilityTracker.cpp
     src/rrs/simulation/spatial/FoodSpatialIndex.cpp
     src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
     src/rrs/simulation/Room.cpp
@@ -90,26 +90,26 @@ if (BUILD_TESTING)
 
     add_test(NAME PlayerBallSpatialIndexTest COMMAND PlayerBallSpatialIndexTest)
 
-    add_executable(RoomVisibilityTest
-        tests/simulation/RoomVisibilityTest.cpp
-        src/rrs/simulation/RoomVisibility.cpp
+    add_executable(PlayerVisibilityTrackerTest
+        tests/simulation/PlayerVisibilityTrackerTest.cpp
+        src/rrs/simulation/PlayerVisibilityTracker.cpp
         src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
     )
 
-    target_link_libraries(RoomVisibilityTest PRIVATE rrs_spatial)
+    target_link_libraries(PlayerVisibilityTrackerTest PRIVATE rrs_spatial)
 
     if (MSVC)
-        target_compile_options(RoomVisibilityTest PRIVATE /W4)
+        target_compile_options(PlayerVisibilityTrackerTest PRIVATE /W4)
     else()
-        target_compile_options(RoomVisibilityTest PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(PlayerVisibilityTrackerTest PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
-    add_test(NAME RoomVisibilityTest COMMAND RoomVisibilityTest)
+    add_test(NAME PlayerVisibilityTrackerTest COMMAND PlayerVisibilityTrackerTest)
 
     add_executable(RoomFoodSynchronizationTest
         tests/simulation/RoomFoodSynchronizationTest.cpp
         src/rrs/simulation/Room.cpp
-        src/rrs/simulation/RoomVisibility.cpp
+        src/rrs/simulation/PlayerVisibilityTracker.cpp
         src/rrs/simulation/spatial/FoodSpatialIndex.cpp
         src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
         src/rrs/synchronization/SnapshotDeltaTracker.cpp
