@@ -22,6 +22,7 @@ public:
 
     void Rebuild(std::span<const PlayerEntity> players);
     [[nodiscard]] std::span<const PlayerBallLocator> QueryCandidates(Vector2 center, float radius);
+    [[nodiscard]] std::span<const PlayerBallLocator> QueryCandidates(std::span<const Aabb> query_bounds);
 
 private:
     UniformGridAabbIndex grid_;

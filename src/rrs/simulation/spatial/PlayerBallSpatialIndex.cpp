@@ -43,7 +43,13 @@ void PlayerBallSpatialIndex::Rebuild(std::span<const PlayerEntity> players)
 
 std::span<const PlayerBallLocator> PlayerBallSpatialIndex::QueryCandidates(Vector2 center, float radius)
 {
-    const auto candidate_record_indices = grid_.QueryCandidates(AabbForCircle(center, radius));
+    const auto query_bounds = AabbForCircle(center, radius);
+    return QueryCandidates(std::span<const Aabb>{&query_bounds, 1});
+}
+
+std::span<const PlayerBallLocator> PlayerBallSpatialIndex::QueryCandidates(std::span<const Aabb> query_bounds)
+{
+    const auto candidate_record_indices = grid_.QueryCandidates(query_bounds);
 
     candidate_ball_locators_.clear();
     for (const auto record_index : candidate_record_indices) {

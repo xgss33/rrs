@@ -15,6 +15,7 @@ public:
 
     void Rebuild(std::span<const Aabb> record_bounds);
     [[nodiscard]] std::span<const std::uint32_t> QueryCandidates(Aabb query_bounds);
+    [[nodiscard]] std::span<const std::uint32_t> QueryCandidates(std::span<const Aabb> query_bounds);
 
 private:
     std::span<const std::uint32_t> RecordIndicesInCell(GridCellCoord cell) const;

@@ -31,7 +31,7 @@ public:
     void RemoveObserver(PlayerId player_id);
 
 private:
-    std::unordered_map<PlayerId, PlayerVisibilitySet> visibility_by_observer_;
+    std::unordered_map<PlayerId, PlayerVisibilitySet> visibility_by_observer_;  // 保存每位观察者上一Tick可见球
     std::vector<std::uint16_t> working_ball_masks_;
 };
 

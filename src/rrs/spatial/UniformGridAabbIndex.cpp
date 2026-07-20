@@ -67,23 +67,30 @@ std::span<const std::uint32_t> UniformGridAabbIndex::RecordIndicesInCell(GridCel
 
 std::span<const std::uint32_t> UniformGridAabbIndex::QueryCandidates(Aabb query_bounds)
 {
+    return QueryCandidates(std::span<const Aabb>{&query_bounds, 1});
+}
+
+std::span<const std::uint32_t> UniformGridAabbIndex::QueryCandidates(std::span<const Aabb> query_bounds)
+{
     candidate_record_indices_.clear();
-
-    const auto cell_range = layout_.CellRangeForBounds(query_bounds);
-    if (!cell_range.has_value()) {
-        return candidate_record_indices_;
-    }
-
     ++query_stamp_;
-    for (auto y = cell_range->min.y; y <= cell_range->max.y; ++y) {
-        for (auto x = cell_range->min.x; x <= cell_range->max.x; ++x) {
-            for (const auto record_index : RecordIndicesInCell({.x = x, .y = y})) {
-                if (record_query_stamps_[record_index] == query_stamp_) {
-                    continue;
-                }
 
-                record_query_stamps_[record_index] = query_stamp_;
-                candidate_record_indices_.push_back(record_index);
+    for (const auto& bounds : query_bounds) {
+        const auto cell_range = layout_.CellRangeForBounds(bounds);
+        if (!cell_range.has_value()) {
+            continue;
+        }
+
+        for (auto y = cell_range->min.y; y <= cell_range->max.y; ++y) {
+            for (auto x = cell_range->min.x; x <= cell_range->max.x; ++x) {
+                for (const auto record_index : RecordIndicesInCell({.x = x, .y = y})) {
+                    if (record_query_stamps_[record_index] == query_stamp_) {
+                        continue;
+                    }
+
+                    record_query_stamps_[record_index] = query_stamp_;
+                    candidate_record_indices_.push_back(record_index);
+                }
             }
         }
     }
