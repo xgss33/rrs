@@ -37,7 +37,6 @@ void PlayerBallSpatialIndex::Rebuild(std::span<const PlayerEntity> players)
         }
     }
 
-    candidate_ball_locators_.clear();
     candidate_ball_locators_.reserve(ball_locators_.size());
     grid_.Rebuild(ball_bounds_);
 }

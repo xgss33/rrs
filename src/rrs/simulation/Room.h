@@ -9,7 +9,6 @@
 #include "rrs/simulation/PlayerVisibilityTracker.h"
 #include "rrs/simulation/spatial/FoodSpatialIndex.h"
 #include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
-#include "rrs/spatial/UniformGrid.h"
 #include "rrs/synchronization/SnapshotDeltaTracker.h"
 #include "rrs/synchronization/SnapshotUpdate.h"
 

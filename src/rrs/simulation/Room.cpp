@@ -172,19 +172,23 @@ void Room::InitializeFoods()
 std::vector<Room::Command> Room::TakeCommandsForTick(Clock::time_point tick_start)
 {
     auto ready_commands = std::vector<Command>{};
-    auto deferred_commands = std::vector<Command>{};
     ready_commands.reserve(pending_commands_.size());
-    deferred_commands.reserve(pending_commands_.size());
 
-    for (auto& command : pending_commands_) {
+    std::size_t deferred_command_count = 0;
+    for (std::size_t command_index = 0; command_index < pending_commands_.size(); ++command_index) {
+        auto& command = pending_commands_[command_index];
         if (command.entered_at < tick_start) {
             ready_commands.push_back(std::move(command));
-        } else {
-            deferred_commands.push_back(std::move(command));
+            continue;
         }
+
+        if (deferred_command_count != command_index) {
+            pending_commands_[deferred_command_count] = std::move(command);
+        }
+        ++deferred_command_count;
     }
 
-    pending_commands_ = std::move(deferred_commands);
+    pending_commands_.resize(deferred_command_count);
     return ready_commands;
 }
 
