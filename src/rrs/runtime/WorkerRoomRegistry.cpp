@@ -184,14 +184,16 @@ Room& WorkerRoomRegistry::CreateRoom()
     return iterator->second.room;
 }
 
-WorkerEntityCounts WorkerRoomRegistry::CollectEntityCounts() const
+WorkerRoomMetrics WorkerRoomRegistry::CollectMetrics() const
 {
-    auto counts = WorkerEntityCounts{};
+    auto metrics = WorkerRoomMetrics{};
     for (const auto& [_, room_state] : rooms_) {
-        counts.static_entities += room_state.room.static_entity_count();
-        counts.dynamic_entities += room_state.room.dynamic_entity_count();
+        metrics.static_entities += room_state.room.static_entity_count();
+        metrics.dynamic_entities += room_state.room.dynamic_entity_count();
+        metrics.visibility_observers += room_state.room.visibility_observer_count();
+        metrics.visible_other_player_balls += room_state.room.visible_other_player_ball_count();
     }
-    return counts;
+    return metrics;
 }
 
 } // namespace rrs

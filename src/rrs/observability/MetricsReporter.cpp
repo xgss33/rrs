@@ -173,6 +173,10 @@ void MetricsReporter::Run(std::stop_token stop_token)
         const auto avg_frames_per_flush = nonempty_flushes > 0
             ? static_cast<double>(frames_at_flush) / static_cast<double>(nonempty_flushes)
             : 0.0;
+        const auto visible_other_player_balls_avg = snapshot.visibility_observers_current > 0
+            ? static_cast<double>(snapshot.visible_other_player_balls_current)
+                / static_cast<double>(snapshot.visibility_observers_current)
+            : 0.0;
 
         const auto current_cpu_sample = ReadProcessCpuSample();
         const auto cpu_percent = previous_cpu_sample && current_cpu_sample
@@ -185,6 +189,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
             "rrs_net_send_calls_per_sec={} rrs_net_avg_frames_per_flush={:.2f} "
             "rrs_process_cpu_percent={:.2f} rrs_process_memory_rss_bytes={} "
             "rrs_static_entities_current={} rrs_dynamic_entities_current={} "
+            "rrs_visible_other_player_balls_avg={:.2f} "
             "rrs_worker_tick_cost_us_max_5s={}",
             snapshot.net_connections_current,
             bytes_in_per_sec,
@@ -195,6 +200,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
             rss_bytes,
             snapshot.static_entities_current,
             snapshot.dynamic_entities_current,
+            visible_other_player_balls_avg,
             FormatWorkerTickCosts(snapshot.worker_tick_metrics));
 
         previous_snapshot = snapshot;

@@ -555,6 +555,7 @@ std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(
     auto updates = std::vector<ObserverSnapshotUpdate>{};
     updates.reserve(players_.size());
     const auto winner = match_over_ ? std::optional{winner_player_id_} : std::nullopt;
+    visible_other_player_ball_count_ = 0;
 
     for (std::size_t observer_player_index = 0; observer_player_index < players_.size(); ++observer_player_index) {
         const auto observer_player_id = players_[observer_player_index].player_id;
@@ -562,6 +563,11 @@ std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(
             observer_player_index,
             players_,
             player_ball_spatial_index_);
+        for (const auto& visible_player : player_visibility.players) {
+            if (visible_player.player_id != observer_player_id) {
+                visible_other_player_ball_count_ += std::popcount(visible_player.ball_mask);
+            }
+        }
         auto update = snapshot_delta_tracker_.BuildUpdate(
             observer_player_id,
             tick_seq_,

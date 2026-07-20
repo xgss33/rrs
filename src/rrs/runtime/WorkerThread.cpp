@@ -233,8 +233,13 @@ void WorkerThread::TickDueRooms(Clock::time_point now)
     metrics_.RecordWorkerTickCostUs(worker_id_, static_cast<std::uint64_t>(std::max<std::int64_t>(0, tick_cost)));
 
     if (room_ticked) {
-        const auto counts = rooms_.CollectEntityCounts();
-        metrics_.SetWorkerEntityCounts(worker_id_, counts.static_entities, counts.dynamic_entities);
+        const auto room_metrics = rooms_.CollectMetrics();
+        metrics_.SetWorkerRoomMetrics(
+            worker_id_,
+            room_metrics.static_entities,
+            room_metrics.dynamic_entities,
+            room_metrics.visibility_observers,
+            room_metrics.visible_other_player_balls);
     }
 }
 

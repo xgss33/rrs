@@ -10,6 +10,8 @@ MetricsRegistry::MetricsRegistry(std::size_t worker_count)
     : worker_tick_cost_us_window_max_(worker_count)
     , worker_static_entities_(worker_count)
     , worker_dynamic_entities_(worker_count)
+    , worker_visibility_observers_(worker_count)
+    , worker_visible_other_player_balls_(worker_count)
 {
     for (auto& value : worker_tick_cost_us_window_max_) {
         value.store(0, std::memory_order_relaxed);
@@ -18,6 +20,12 @@ MetricsRegistry::MetricsRegistry(std::size_t worker_count)
         value.store(0, std::memory_order_relaxed);
     }
     for (auto& value : worker_dynamic_entities_) {
+        value.store(0, std::memory_order_relaxed);
+    }
+    for (auto& value : worker_visibility_observers_) {
+        value.store(0, std::memory_order_relaxed);
+    }
+    for (auto& value : worker_visible_other_player_balls_) {
         value.store(0, std::memory_order_relaxed);
     }
 }
@@ -73,9 +81,11 @@ void MetricsRegistry::RecordWorkerTickCostUs(WorkerId worker_id, std::uint64_t c
     }
 }
 
-void MetricsRegistry::SetWorkerEntityCounts(WorkerId worker_id,
-                                            std::uint64_t static_entities,
-                                            std::uint64_t dynamic_entities) noexcept
+void MetricsRegistry::SetWorkerRoomMetrics(WorkerId worker_id,
+                                           std::uint64_t static_entities,
+                                           std::uint64_t dynamic_entities,
+                                           std::uint64_t visibility_observers,
+                                           std::uint64_t visible_other_player_balls) noexcept
 {
     const auto worker_index = static_cast<std::size_t>(worker_id.value());
     if (worker_index >= worker_static_entities_.size()) {
@@ -84,6 +94,8 @@ void MetricsRegistry::SetWorkerEntityCounts(WorkerId worker_id,
 
     worker_static_entities_[worker_index].store(static_entities, std::memory_order_relaxed);
     worker_dynamic_entities_[worker_index].store(dynamic_entities, std::memory_order_relaxed);
+    worker_visibility_observers_[worker_index].store(visibility_observers, std::memory_order_relaxed);
+    worker_visible_other_player_balls_[worker_index].store(visible_other_player_balls, std::memory_order_relaxed);
 }
 
 MetricsSnapshot MetricsRegistry::CollectSnapshotAndResetTickMaxima()
@@ -94,6 +106,8 @@ MetricsSnapshot MetricsRegistry::CollectSnapshotAndResetTickMaxima()
         .net_bytes_out_total = net_bytes_out_total_.load(std::memory_order_relaxed),
         .static_entities_current = 0,
         .dynamic_entities_current = 0,
+        .visibility_observers_current = 0,
+        .visible_other_player_balls_current = 0,
         .io_send_metrics = {
             .send_calls = io_send_calls_.load(std::memory_order_relaxed),
             .nonempty_flushes = io_nonempty_flushes_.load(std::memory_order_relaxed),
@@ -106,6 +120,9 @@ MetricsSnapshot MetricsRegistry::CollectSnapshotAndResetTickMaxima()
     for (std::size_t index = 0; index < worker_tick_cost_us_window_max_.size(); ++index) {
         snapshot.static_entities_current += worker_static_entities_[index].load(std::memory_order_relaxed);
         snapshot.dynamic_entities_current += worker_dynamic_entities_[index].load(std::memory_order_relaxed);
+        snapshot.visibility_observers_current += worker_visibility_observers_[index].load(std::memory_order_relaxed);
+        snapshot.visible_other_player_balls_current +=
+            worker_visible_other_player_balls_[index].load(std::memory_order_relaxed);
         snapshot.worker_tick_metrics.push_back(WorkerTickMetrics{
             .worker_id = WorkerId{index},
             .tick_cost_us_max_5s = worker_tick_cost_us_window_max_[index].exchange(0, std::memory_order_relaxed),
