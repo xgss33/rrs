@@ -3,6 +3,7 @@
 #include "rrs/math/Vector2.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/spatial/UniformGrid.h"
+#include "rrs/spatial/UniformGridAabbIndex.h"
 
 #include <cstdint>
 #include <span>
@@ -23,7 +24,7 @@ public:
     [[nodiscard]] std::span<const PlayerBallLocator> QueryCandidates(Vector2 center, float radius);
 
 private:
-    UniformGridIndex grid_;
+    UniformGridAabbIndex grid_;
     std::vector<Aabb> ball_bounds_;
     std::vector<PlayerBallLocator> ball_locators_;
     std::vector<PlayerBallLocator> candidate_ball_locators_;

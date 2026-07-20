@@ -12,6 +12,8 @@ add_subdirectory(third_party/spdlog)
 
 add_library(rrs_spatial STATIC
     src/rrs/spatial/UniformGrid.cpp
+    src/rrs/spatial/UniformGridAabbIndex.cpp
+    src/rrs/spatial/UniformGridPointIndex.cpp
 )
 
 target_include_directories(rrs_spatial

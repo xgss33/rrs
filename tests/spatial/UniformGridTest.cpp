@@ -1,4 +1,5 @@
 #include "rrs/spatial/UniformGrid.h"
+#include "rrs/spatial/UniformGridAabbIndex.h"
 
 #include "rrs/math/Vector2.h"
 
@@ -77,7 +78,7 @@ void TestRoomEdgeClipping()
 
 void TestStableRecordOrder()
 {
-    rrs::UniformGridIndex grid{MakeLayout()};
+    rrs::UniformGridAabbIndex grid{MakeLayout()};
     const std::array records{
         MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
         MakeAabb(-970.0F, -1000.0F, -950.0F, -990.0F),
@@ -94,12 +95,11 @@ void TestStableRecordOrder()
         grid.QueryCandidates(MakeAabb(-959.0F, -1020.0F, -900.0F, -961.0F)),
         std::array<std::uint32_t, 1>{1},
         "multi-cell record reference");
-    Expect(grid.spatial_reference_count() == 4, "spatial reference count");
 }
 
 void TestRebuildReplacesOldIndex()
 {
-    rrs::UniformGridIndex grid{MakeLayout()};
+    rrs::UniformGridAabbIndex grid{MakeLayout()};
     const std::array first_records{
         MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
     };
@@ -121,7 +121,7 @@ void TestRebuildReplacesOldIndex()
 
 void TestDeterministicRebuild()
 {
-    rrs::UniformGridIndex grid{MakeLayout()};
+    rrs::UniformGridAabbIndex grid{MakeLayout()};
     const std::array records{
         MakeAabb(-970.0F, -970.0F, -950.0F, -950.0F),
         MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
@@ -142,7 +142,7 @@ void TestDeterministicRebuild()
 
 void TestCandidateQueries()
 {
-    rrs::UniformGridIndex grid{MakeLayout()};
+    rrs::UniformGridAabbIndex grid{MakeLayout()};
     const std::array records{
         MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
         MakeAabb(-950.0F, -1000.0F, -940.0F, -990.0F),

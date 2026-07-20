@@ -3,6 +3,7 @@
 #include "rrs/math/Vector2.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/spatial/UniformGrid.h"
+#include "rrs/spatial/UniformGridAabbIndex.h"
 
 #include <algorithm>
 #include <cstddef>
