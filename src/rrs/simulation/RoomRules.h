@@ -27,7 +27,7 @@ inline constexpr float kPlayerGrowthRatio = 0.75F;
 inline constexpr float kSplitSpawnDistanceRatio = 3.0F;
 
 inline constexpr std::chrono::seconds kRespawnDelay{5};
-inline constexpr std::chrono::seconds kMatchDuration{600};
+inline constexpr std::chrono::seconds kMatchDuration{1200};
 inline constexpr std::size_t kRespawnSearchAttempts = 16;
 
 } // namespace rrs::room_rules
