@@ -40,7 +40,7 @@ add_executable(rrs
     src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
     src/rrs/simulation/Room.cpp
     src/rrs/synchronization/SnapshotDeltaTracker.cpp
-    src/rrs/synchronization/SnapshotUpdate.cpp
+    src/rrs/synchronization/SnapshotQuantization.cpp
 )
 
 target_include_directories(rrs
@@ -113,7 +113,7 @@ if (BUILD_TESTING)
         src/rrs/simulation/spatial/FoodSpatialIndex.cpp
         src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
         src/rrs/synchronization/SnapshotDeltaTracker.cpp
-        src/rrs/synchronization/SnapshotUpdate.cpp
+        src/rrs/synchronization/SnapshotQuantization.cpp
     )
 
     target_link_libraries(RoomFoodSynchronizationTest PRIVATE rrs_spatial)
@@ -129,7 +129,7 @@ if (BUILD_TESTING)
     add_executable(SnapshotDeltaTrackerTest
         tests/synchronization/SnapshotDeltaTrackerTest.cpp
         src/rrs/synchronization/SnapshotDeltaTracker.cpp
-        src/rrs/synchronization/SnapshotUpdate.cpp
+        src/rrs/synchronization/SnapshotQuantization.cpp
     )
 
     if (MSVC)

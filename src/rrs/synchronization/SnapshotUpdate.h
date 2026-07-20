@@ -1,9 +1,9 @@
 #pragma once
 
 #include "rrs/core/Identifiers.h"
-#include "rrs/math/Vector2.h"
 #include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/PlayerEntity.h"
+#include "rrs/synchronization/SnapshotQuantization.h"
 
 #include <array>
 #include <cstdint>
@@ -11,20 +11,6 @@
 #include <vector>
 
 namespace rrs {
-
-struct QuantizedPosition {
-    std::int16_t x{0};
-    std::int16_t y{0};
-
-    friend bool operator==(const QuantizedPosition&, const QuantizedPosition&) = default;
-};
-
-struct QuantizedBallState {
-    QuantizedPosition position;
-    std::uint16_t radius{0};
-
-    friend bool operator==(const QuantizedBallState&, const QuantizedBallState&) = default;
-};
 
 struct PlayerSnapshotUpdate {
     PlayerId player_id;
@@ -47,8 +33,5 @@ struct SnapshotUpdate {
     std::vector<PlayerId> removed_player_ids;
     std::optional<PlayerId> winner_player_id;
 };
-
-QuantizedPosition QuantizeSnapshotPosition(Vector2 position);
-QuantizedBallState QuantizeSnapshotBall(const PlayerBall& ball);
 
 } // namespace rrs

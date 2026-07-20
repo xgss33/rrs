@@ -1,4 +1,4 @@
-#include "rrs/synchronization/SnapshotUpdate.h"
+#include "rrs/synchronization/SnapshotQuantization.h"
 
 #include "rrs/math/Vector2.h"
 #include "rrs/simulation/PlayerEntity.h"

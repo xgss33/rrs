@@ -12,6 +12,7 @@
 #include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 #include "rrs/spatial/UniformGrid.h"
 #include "rrs/synchronization/SnapshotDeltaTracker.h"
+#include "rrs/synchronization/SnapshotQuantization.h"
 #include "rrs/synchronization/SnapshotUpdate.h"
 
 #include <algorithm>

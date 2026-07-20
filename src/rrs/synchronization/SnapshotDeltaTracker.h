@@ -3,6 +3,7 @@
 #include "rrs/core/Identifiers.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/PlayerVisibilityTracker.h"
+#include "rrs/synchronization/SnapshotQuantization.h"
 #include "rrs/synchronization/SnapshotUpdate.h"
 
 #include <optional>
