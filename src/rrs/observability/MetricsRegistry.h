@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <vector>
 
 namespace rrs {
@@ -12,6 +13,7 @@ namespace rrs {
 struct WorkerTickMetrics {
     WorkerId worker_id;
     std::uint64_t tick_cost_us_max_5s{0};
+    std::vector<std::uint64_t> tick_cost_us_samples_5s;
 };
 
 struct IoSendMetrics {
@@ -46,14 +48,14 @@ public:
     void OnBytesRead(std::uint64_t byte_count) noexcept;
     void OnBytesWritten(std::uint64_t byte_count) noexcept;
     void MergeIoSendMetrics(const IoSendMetrics& metrics) noexcept;
-    void RecordWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost_us) noexcept;
+    void RecordWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost_us);
     void SetWorkerRoomMetrics(WorkerId worker_id,
                               std::uint64_t static_entities,
                               std::uint64_t dynamic_entities,
                               std::uint64_t visibility_observers,
                               std::uint64_t visible_other_player_balls) noexcept;
 
-    [[nodiscard]] MetricsSnapshot CollectSnapshotAndResetTickMaxima();
+    [[nodiscard]] MetricsSnapshot CollectSnapshotAndResetTickWindows();
 
 private:
     std::atomic<std::uint64_t> net_connections_current_{0};
@@ -62,7 +64,9 @@ private:
     std::atomic<std::uint64_t> io_send_calls_{0};
     std::atomic<std::uint64_t> io_nonempty_flushes_{0};
     std::atomic<std::uint64_t> io_frames_at_flush_{0};
-    std::vector<std::atomic<std::uint64_t>> worker_tick_cost_us_window_max_;
+    std::vector<std::uint64_t> worker_tick_cost_us_window_max_;
+    std::vector<std::mutex> worker_tick_window_mutexes_;
+    std::vector<std::vector<std::uint64_t>> worker_tick_cost_us_samples_;
     std::vector<std::atomic<std::uint64_t>> worker_static_entities_;
     std::vector<std::atomic<std::uint64_t>> worker_dynamic_entities_;
     std::vector<std::atomic<std::uint64_t>> worker_visibility_observers_;

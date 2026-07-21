@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace rrs {
@@ -106,6 +107,18 @@ std::string FormatWorkerTickCosts(const std::vector<WorkerTickMetrics>& metrics)
     return output;
 }
 
+std::string FormatWorkerTickSamples(const std::vector<std::uint64_t>& samples)
+{
+    auto output = std::string{};
+    for (const auto sample : samples) {
+        if (!output.empty()) {
+            output.push_back(',');
+        }
+        output += std::to_string(sample);
+    }
+    return output;
+}
+
 } // namespace
 
 MetricsReporter::MetricsReporter(MetricsRegistry& metrics, std::chrono::seconds report_interval)
@@ -139,7 +152,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
 {
     SetCurrentThreadName("rrs-metrics");
 
-    auto previous_snapshot = metrics_.CollectSnapshotAndResetTickMaxima();
+    auto previous_snapshot = metrics_.CollectSnapshotAndResetTickWindows();
     auto previous_cpu_sample = ReadProcessCpuSample();
     auto previous_sample_time = std::chrono::steady_clock::now();
 
@@ -155,7 +168,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
         }
 
         const auto now = std::chrono::steady_clock::now();
-        const auto snapshot = metrics_.CollectSnapshotAndResetTickMaxima();
+        auto snapshot = metrics_.CollectSnapshotAndResetTickWindows();
         const auto elapsed = std::chrono::duration<double>(now - previous_sample_time).count();
         const auto bytes_in_per_sec = elapsed > 0.0
             ? static_cast<std::uint64_t>((snapshot.net_bytes_in_total - previous_snapshot.net_bytes_in_total) / elapsed)
@@ -203,7 +216,17 @@ void MetricsReporter::Run(std::stop_token stop_token)
             visible_other_player_balls_avg,
             FormatWorkerTickCosts(snapshot.worker_tick_metrics));
 
-        previous_snapshot = snapshot;
+        for (const auto& worker_tick_metrics : snapshot.worker_tick_metrics) {
+            if (worker_tick_metrics.tick_cost_us_samples_5s.empty()) {
+                continue;
+            }
+            Logger::Metrics(
+                "[TickSamples] worker={} costs_us={}",
+                worker_tick_metrics.worker_id.value(),
+                FormatWorkerTickSamples(worker_tick_metrics.tick_cost_us_samples_5s));
+        }
+
+        previous_snapshot = std::move(snapshot);
         previous_cpu_sample = current_cpu_sample;
         previous_sample_time = now;
     }

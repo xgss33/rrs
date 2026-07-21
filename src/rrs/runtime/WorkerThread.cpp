@@ -229,10 +229,12 @@ void WorkerThread::TickDueRooms(Clock::time_point now)
         room_ticked = true;
         HandleRoomTickResult(room, result);
     });
-    const auto tick_cost = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - tick_start).count();
-    metrics_.RecordWorkerTickCostUs(worker_id_, static_cast<std::uint64_t>(std::max<std::int64_t>(0, tick_cost)));
-
     if (room_ticked) {
+        const auto tick_cost = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - tick_start).count();
+        metrics_.RecordWorkerTickCostUs(
+            worker_id_,
+            static_cast<std::uint64_t>(std::max<std::int64_t>(0, tick_cost)));
+
         const auto room_metrics = rooms_.CollectMetrics();
         metrics_.SetWorkerRoomMetrics(
             worker_id_,
