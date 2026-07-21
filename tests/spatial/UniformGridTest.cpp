@@ -167,26 +167,6 @@ void TestCandidateQueries()
         "outside candidate query");
 }
 
-void TestMultipleQueryBoundsShareDeduplication()
-{
-    rrs::UniformGridAabbIndex grid{MakeLayout()};
-    const std::array records{
-        MakeAabb(-1000.0F, -1000.0F, -990.0F, -990.0F),
-        MakeAabb(-950.0F, -1000.0F, -940.0F, -990.0F),
-        MakeAabb(-970.0F, -1000.0F, -950.0F, -990.0F),
-    };
-    grid.Rebuild(records);
-
-    const std::array query_bounds{
-        MakeAabb(-1020.0F, -1020.0F, -961.0F, -961.0F),
-        MakeAabb(-959.0F, -1020.0F, -900.0F, -961.0F),
-    };
-    ExpectIndices(
-        grid.QueryCandidates(query_bounds),
-        std::array<std::uint32_t, 3>{0, 2, 1},
-        "multiple query bounds share record deduplication");
-}
-
 } // namespace
 
 int main()
@@ -197,7 +177,6 @@ int main()
     TestRebuildReplacesOldIndex();
     TestDeterministicRebuild();
     TestCandidateQueries();
-    TestMultipleQueryBoundsShareDeduplication();
     std::cout << "UniformGrid tests passed\n";
     return EXIT_SUCCESS;
 }

@@ -22,16 +22,12 @@ public:
 
     void Rebuild(std::span<const PlayerEntity> players);
     [[nodiscard]] std::span<const PlayerBallLocator> QueryCandidates(Vector2 center, float radius);
-    [[nodiscard]] std::span<const PlayerBallLocator> QueryCandidates(std::span<const Aabb> query_bounds);
 
 private:
     UniformGridAabbIndex grid_;
     std::vector<Aabb> ball_bounds_;
     std::vector<PlayerBallLocator> ball_locators_;
     std::vector<PlayerBallLocator> candidate_ball_locators_;
-
-public:
-    std::size_t indexed_ball_count() const { return ball_locators_.size(); }
 };
 
 } // namespace rrs

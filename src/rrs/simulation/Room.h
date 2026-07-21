@@ -127,7 +127,7 @@ private:
 
 public:
     std::size_t static_entity_count() const { return foods_.size(); }
-    std::size_t dynamic_entity_count() const { return player_ball_spatial_index_.indexed_ball_count(); }
+    std::size_t dynamic_entity_count() const;
     std::size_t visibility_observer_count() const { return players_.size(); }
     std::size_t visible_other_player_ball_count() const { return visible_other_player_ball_count_; }
 

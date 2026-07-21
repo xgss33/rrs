@@ -136,7 +136,6 @@ Room::TickResult Room::Tick()
         UpdateMatchState();
     }
 
-    player_ball_spatial_index_.Rebuild(players_);
     result.snapshot_updates = BuildSnapshotUpdates(result.events, !result.food_updates.empty());
     if (std::any_of(
             result.snapshot_updates.begin(),
@@ -559,10 +558,7 @@ std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(
 
     for (std::size_t observer_player_index = 0; observer_player_index < players_.size(); ++observer_player_index) {
         const auto observer_player_id = players_[observer_player_index].player_id;
-        const auto& player_visibility = player_visibility_tracker_.UpdateForObserver(
-            observer_player_index,
-            players_,
-            player_ball_spatial_index_);
+        const auto& player_visibility = player_visibility_tracker_.UpdateForObserver(observer_player_index, players_);
         for (const auto& visible_player : player_visibility.players) {
             if (visible_player.player_id != observer_player_id) {
                 visible_other_player_ball_count_ += std::popcount(visible_player.ball_mask);
@@ -592,6 +588,15 @@ std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(
         }
     }
     return updates;
+}
+
+std::size_t Room::dynamic_entity_count() const
+{
+    auto count = std::size_t{0};
+    for (const auto& player : players_) {
+        count += static_cast<std::size_t>(std::popcount(player.active_ball_mask));
+    }
+    return count;
 }
 
 std::vector<FoodSnapshotUpdate> Room::BuildFoodSnapshotBaseline() const

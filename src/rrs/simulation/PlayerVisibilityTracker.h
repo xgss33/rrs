@@ -2,7 +2,6 @@
 
 #include "rrs/core/Identifiers.h"
 #include "rrs/simulation/PlayerEntity.h"
-#include "rrs/simulation/spatial/PlayerBallSpatialIndex.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -25,8 +24,7 @@ class PlayerVisibilityTracker {
 public:
     [[nodiscard]] const PlayerVisibilitySet& UpdateForObserver(
         std::size_t observer_player_index,
-        std::span<const PlayerEntity> players,
-        PlayerBallSpatialIndex& player_ball_spatial_index);
+        std::span<const PlayerEntity> players);
 
     void RemoveObserver(PlayerId player_id);
 

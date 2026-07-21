@@ -14,14 +14,12 @@ UniformGridAabbIndex::UniformGridAabbIndex(UniformGridLayout layout)
     : layout_(layout)
     , cell_offsets_(layout.cell_count() + 1, 0)
     , cell_write_offsets_(layout.cell_count(), 0)
-    , cell_query_stamps_(layout.cell_count(), 0)
 {
 }
 
 void UniformGridAabbIndex::Rebuild(std::span<const Aabb> record_bounds)
 {
     std::fill(cell_offsets_.begin(), cell_offsets_.end(), 0);
-    std::fill(cell_query_stamps_.begin(), cell_query_stamps_.end(), 0);
     candidate_record_indices_.reserve(record_bounds.size());
     record_query_stamps_.assign(record_bounds.size(), 0);
     query_stamp_ = 0;
@@ -68,36 +66,24 @@ std::span<const std::uint32_t> UniformGridAabbIndex::RecordIndicesInCell(std::si
 
 std::span<const std::uint32_t> UniformGridAabbIndex::QueryCandidates(Aabb query_bounds)
 {
-    return QueryCandidates(std::span<const Aabb>{&query_bounds, 1});
-}
-
-std::span<const std::uint32_t> UniformGridAabbIndex::QueryCandidates(std::span<const Aabb> query_bounds)
-{
     candidate_record_indices_.clear();
     ++query_stamp_;
 
-    for (const auto& bounds : query_bounds) {
-        const auto cell_range = layout_.CellRangeForBounds(bounds);
-        if (!cell_range.has_value()) {
-            continue;
-        }
+    const auto cell_range = layout_.CellRangeForBounds(query_bounds);
+    if (!cell_range.has_value()) {
+        return candidate_record_indices_;
+    }
 
-        for (auto y = cell_range->min.y; y <= cell_range->max.y; ++y) {
-            for (auto x = cell_range->min.x; x <= cell_range->max.x; ++x) {
-                const auto cell_index = layout_.CellIndex({.x = x, .y = y});
-                if (cell_query_stamps_[cell_index] == query_stamp_) {
+    for (auto y = cell_range->min.y; y <= cell_range->max.y; ++y) {
+        for (auto x = cell_range->min.x; x <= cell_range->max.x; ++x) {
+            const auto cell_index = layout_.CellIndex({.x = x, .y = y});
+            for (const auto record_index : RecordIndicesInCell(cell_index)) {
+                if (record_query_stamps_[record_index] == query_stamp_) {
                     continue;
                 }
-                cell_query_stamps_[cell_index] = query_stamp_;
 
-                for (const auto record_index : RecordIndicesInCell(cell_index)) {
-                    if (record_query_stamps_[record_index] == query_stamp_) {
-                        continue;
-                    }
-
-                    record_query_stamps_[record_index] = query_stamp_;
-                    candidate_record_indices_.push_back(record_index);
-                }
+                record_query_stamps_[record_index] = query_stamp_;
+                candidate_record_indices_.push_back(record_index);
             }
         }
     }

@@ -93,10 +93,9 @@ if (BUILD_TESTING)
     add_executable(PlayerVisibilityTrackerTest
         tests/simulation/PlayerVisibilityTrackerTest.cpp
         src/rrs/simulation/PlayerVisibilityTracker.cpp
-        src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
     )
 
-    target_link_libraries(PlayerVisibilityTrackerTest PRIVATE rrs_spatial)
+    target_include_directories(PlayerVisibilityTrackerTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
     if (MSVC)
         target_compile_options(PlayerVisibilityTrackerTest PRIVATE /W4)
