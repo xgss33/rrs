@@ -1,0 +1,3 @@
+旧tick的峰值采集不准确
+当前worker内room是串行, 但是tick是错峰的, 这样可以平稳输入输出, 旧tick采集的是一次TickDueRooms, 里面并不是驱动所有房间一起tick. 实际上当前设计下的roomtick远低于预期的tick*30.
+同时设计了新的tick采样, 用于统计P50 P99

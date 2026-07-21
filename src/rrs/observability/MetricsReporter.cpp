@@ -93,21 +93,7 @@ double CalculateCpuPercent(const ProcessCpuSample& previous, const ProcessCpuSam
     return process_seconds / elapsed_seconds * 100.0;
 }
 
-std::string FormatWorkerTickCosts(const std::vector<WorkerTickMetrics>& metrics)
-{
-    auto output = std::string{};
-    for (const auto& metric : metrics) {
-        if (!output.empty()) {
-            output.push_back(',');
-        }
-        output += std::to_string(metric.worker_id.value());
-        output.push_back(':');
-        output += std::to_string(metric.tick_cost_us_max_5s);
-    }
-    return output;
-}
-
-std::string FormatWorkerTickSamples(const std::vector<std::uint64_t>& samples)
+std::string FormatSamples(const std::vector<std::uint64_t>& samples)
 {
     auto output = std::string{};
     for (const auto sample : samples) {
@@ -152,7 +138,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
 {
     SetCurrentThreadName("rrs-metrics");
 
-    auto previous_snapshot = metrics_.CollectSnapshotAndResetTickWindows();
+    auto previous_snapshot = metrics_.CollectSnapshotAndResetRoomTickResponseTimes();
     auto previous_cpu_sample = ReadProcessCpuSample();
     auto previous_sample_time = std::chrono::steady_clock::now();
 
@@ -168,7 +154,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
         }
 
         const auto now = std::chrono::steady_clock::now();
-        auto snapshot = metrics_.CollectSnapshotAndResetTickWindows();
+        auto snapshot = metrics_.CollectSnapshotAndResetRoomTickResponseTimes();
         const auto elapsed = std::chrono::duration<double>(now - previous_sample_time).count();
         const auto bytes_in_per_sec = elapsed > 0.0
             ? static_cast<std::uint64_t>((snapshot.net_bytes_in_total - previous_snapshot.net_bytes_in_total) / elapsed)
@@ -202,8 +188,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
             "rrs_net_send_calls_per_sec={} rrs_net_avg_frames_per_flush={:.2f} "
             "rrs_process_cpu_percent={:.2f} rrs_process_memory_rss_bytes={} "
             "rrs_static_entities_current={} rrs_dynamic_entities_current={} "
-            "rrs_visible_other_player_balls_avg={:.2f} "
-            "rrs_worker_tick_cost_us_max_5s={}",
+            "rrs_visible_other_player_balls_avg={:.2f}",
             snapshot.net_connections_current,
             bytes_in_per_sec,
             bytes_out_per_sec,
@@ -213,17 +198,16 @@ void MetricsReporter::Run(std::stop_token stop_token)
             rss_bytes,
             snapshot.static_entities_current,
             snapshot.dynamic_entities_current,
-            visible_other_player_balls_avg,
-            FormatWorkerTickCosts(snapshot.worker_tick_metrics));
+            visible_other_player_balls_avg);
 
-        for (const auto& worker_tick_metrics : snapshot.worker_tick_metrics) {
-            if (worker_tick_metrics.tick_cost_us_samples_5s.empty()) {
+        for (const auto& response_times : snapshot.room_tick_response_times) {
+            if (response_times.samples_us.empty()) {
                 continue;
             }
             Logger::Metrics(
-                "[TickSamples] worker={} costs_us={}",
-                worker_tick_metrics.worker_id.value(),
-                FormatWorkerTickSamples(worker_tick_metrics.tick_cost_us_samples_5s));
+                "[RoomTickResponseTimes] worker={} samples_us={}",
+                response_times.worker_id.value(),
+                FormatSamples(response_times.samples_us));
         }
 
         previous_snapshot = std::move(snapshot);

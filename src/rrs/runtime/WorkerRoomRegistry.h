@@ -64,8 +64,9 @@ public:
             bool room_erased = false;
 
             while (room.next_tick_time() <= now && catch_up_count < max_catch_up_ticks) {
+                const auto scheduled_tick_time = room.next_tick_time();
                 auto result = room.Tick();
-                handle_tick_result(room, result);
+                handle_tick_result(room, result, scheduled_tick_time);
 
                 if (rooms_.find(room_id) == rooms_.end()) {
                     room_erased = true;

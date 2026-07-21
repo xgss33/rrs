@@ -223,18 +223,24 @@ void WorkerThread::HandleLeave(const IoToWorkerMessage& message, Clock::time_poi
 
 void WorkerThread::TickDueRooms(Clock::time_point now)
 {
-    const auto tick_start = Clock::now();
     auto room_ticked = false;
-    rooms_.TickDueRooms(now, max_catch_up_ticks_, [this, &room_ticked](const Room& room, const Room::TickResult& result) {
-        room_ticked = true;
-        HandleRoomTickResult(room, result);
-    });
-    if (room_ticked) {
-        const auto tick_cost = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - tick_start).count();
-        metrics_.RecordWorkerTickCostUs(
-            worker_id_,
-            static_cast<std::uint64_t>(std::max<std::int64_t>(0, tick_cost)));
+    rooms_.TickDueRooms(
+        now,
+        max_catch_up_ticks_,
+        [this, &room_ticked](
+            const Room& room,
+            const Room::TickResult& result,
+            Clock::time_point scheduled_tick_time) {
+            room_ticked = true;
+            HandleRoomTickResult(room, result);
 
+            const auto response_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                Clock::now() - scheduled_tick_time);
+            metrics_.RecordRoomTickResponseTimeUs(
+                worker_id_,
+                static_cast<std::uint64_t>(response_time.count()));
+        });
+    if (room_ticked) {
         const auto room_metrics = rooms_.CollectMetrics();
         metrics_.SetWorkerRoomMetrics(
             worker_id_,

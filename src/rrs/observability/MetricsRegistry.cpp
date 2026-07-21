@@ -2,24 +2,29 @@
 
 #include "rrs/core/Identifiers.h"
 
-#include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <mutex>
 #include <utility>
 
 namespace rrs {
 
+namespace {
+
+constexpr std::size_t kRoomTickResponseTimeSampleCapacity = 16'384;
+
+} // namespace
+
 MetricsRegistry::MetricsRegistry(std::size_t worker_count)
-    : worker_tick_cost_us_window_max_(worker_count)
-    , worker_tick_window_mutexes_(worker_count)
-    , worker_tick_cost_us_samples_(worker_count)
+    : room_tick_response_time_mutexes_(worker_count)
+    , room_tick_response_time_samples_(worker_count)
     , worker_static_entities_(worker_count)
     , worker_dynamic_entities_(worker_count)
     , worker_visibility_observers_(worker_count)
     , worker_visible_other_player_balls_(worker_count)
 {
-    for (auto& samples : worker_tick_cost_us_samples_) {
-        samples.reserve(256);
+    for (auto& samples : room_tick_response_time_samples_) {
+        samples.reserve(kRoomTickResponseTimeSampleCapacity);
     }
     for (auto& value : worker_static_entities_) {
         value.store(0, std::memory_order_relaxed);
@@ -69,17 +74,15 @@ void MetricsRegistry::MergeIoSendMetrics(const IoSendMetrics& metrics) noexcept
     io_frames_at_flush_.fetch_add(metrics.frames_at_flush, std::memory_order_relaxed);
 }
 
-void MetricsRegistry::RecordWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost_us)
+void MetricsRegistry::RecordRoomTickResponseTimeUs(WorkerId worker_id, std::uint64_t response_time_us)
 {
     const auto worker_index = static_cast<std::size_t>(worker_id.value());
-    if (worker_index >= worker_tick_cost_us_window_max_.size()) {
+    if (worker_index >= room_tick_response_time_samples_.size()) {
         return;
     }
 
-    auto lock = std::scoped_lock{worker_tick_window_mutexes_[worker_index]};
-    worker_tick_cost_us_window_max_[worker_index] =
-        std::max(worker_tick_cost_us_window_max_[worker_index], cost_us);
-    worker_tick_cost_us_samples_[worker_index].push_back(cost_us);
+    auto lock = std::scoped_lock{room_tick_response_time_mutexes_[worker_index]};
+    room_tick_response_time_samples_[worker_index].push_back(response_time_us);
 }
 
 void MetricsRegistry::SetWorkerRoomMetrics(WorkerId worker_id,
@@ -99,7 +102,7 @@ void MetricsRegistry::SetWorkerRoomMetrics(WorkerId worker_id,
     worker_visible_other_player_balls_[worker_index].store(visible_other_player_balls, std::memory_order_relaxed);
 }
 
-MetricsSnapshot MetricsRegistry::CollectSnapshotAndResetTickWindows()
+MetricsSnapshot MetricsRegistry::CollectSnapshotAndResetRoomTickResponseTimes()
 {
     auto snapshot = MetricsSnapshot{
         .net_connections_current = net_connections_current_.load(std::memory_order_relaxed),
@@ -114,20 +117,18 @@ MetricsSnapshot MetricsRegistry::CollectSnapshotAndResetTickWindows()
             .nonempty_flushes = io_nonempty_flushes_.load(std::memory_order_relaxed),
             .frames_at_flush = io_frames_at_flush_.load(std::memory_order_relaxed),
         },
-        .worker_tick_metrics = {},
+        .room_tick_response_times = {},
     };
 
-    snapshot.worker_tick_metrics.reserve(worker_tick_cost_us_window_max_.size());
-    for (std::size_t index = 0; index < worker_tick_cost_us_window_max_.size(); ++index) {
-        auto tick_cost_us_max = std::uint64_t{0};
-        auto tick_cost_us_samples = std::vector<std::uint64_t>{};
-        auto next_tick_cost_us_samples = std::vector<std::uint64_t>{};
-        next_tick_cost_us_samples.reserve(256);
+    snapshot.room_tick_response_times.reserve(room_tick_response_time_samples_.size());
+    for (std::size_t index = 0; index < room_tick_response_time_samples_.size(); ++index) {
+        auto response_time_samples = std::vector<std::uint64_t>{};
+        auto next_response_time_samples = std::vector<std::uint64_t>{};
+        next_response_time_samples.reserve(kRoomTickResponseTimeSampleCapacity);
         {
-            auto lock = std::scoped_lock{worker_tick_window_mutexes_[index]};
-            tick_cost_us_max = std::exchange(worker_tick_cost_us_window_max_[index], 0);
-            tick_cost_us_samples = std::move(worker_tick_cost_us_samples_[index]);
-            worker_tick_cost_us_samples_[index] = std::move(next_tick_cost_us_samples);
+            auto lock = std::scoped_lock{room_tick_response_time_mutexes_[index]};
+            response_time_samples = std::move(room_tick_response_time_samples_[index]);
+            room_tick_response_time_samples_[index] = std::move(next_response_time_samples);
         }
 
         snapshot.static_entities_current += worker_static_entities_[index].load(std::memory_order_relaxed);
@@ -135,10 +136,9 @@ MetricsSnapshot MetricsRegistry::CollectSnapshotAndResetTickWindows()
         snapshot.visibility_observers_current += worker_visibility_observers_[index].load(std::memory_order_relaxed);
         snapshot.visible_other_player_balls_current +=
             worker_visible_other_player_balls_[index].load(std::memory_order_relaxed);
-        snapshot.worker_tick_metrics.push_back(WorkerTickMetrics{
+        snapshot.room_tick_response_times.push_back(RoomTickResponseTimeSamples{
             .worker_id = WorkerId{index},
-            .tick_cost_us_max_5s = tick_cost_us_max,
-            .tick_cost_us_samples_5s = std::move(tick_cost_us_samples),
+            .samples_us = std::move(response_time_samples),
         });
     }
 

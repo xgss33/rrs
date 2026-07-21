@@ -10,10 +10,9 @@
 
 namespace rrs {
 
-struct WorkerTickMetrics {
+struct RoomTickResponseTimeSamples {
     WorkerId worker_id;
-    std::uint64_t tick_cost_us_max_5s{0};
-    std::vector<std::uint64_t> tick_cost_us_samples_5s;
+    std::vector<std::uint64_t> samples_us;
 };
 
 struct IoSendMetrics {
@@ -31,7 +30,7 @@ struct MetricsSnapshot {
     std::uint64_t visibility_observers_current{0};
     std::uint64_t visible_other_player_balls_current{0};
     IoSendMetrics io_send_metrics;
-    std::vector<WorkerTickMetrics> worker_tick_metrics;
+    std::vector<RoomTickResponseTimeSamples> room_tick_response_times;
 };
 
 class MetricsRegistry {
@@ -48,14 +47,14 @@ public:
     void OnBytesRead(std::uint64_t byte_count) noexcept;
     void OnBytesWritten(std::uint64_t byte_count) noexcept;
     void MergeIoSendMetrics(const IoSendMetrics& metrics) noexcept;
-    void RecordWorkerTickCostUs(WorkerId worker_id, std::uint64_t cost_us);
+    void RecordRoomTickResponseTimeUs(WorkerId worker_id, std::uint64_t response_time_us);
     void SetWorkerRoomMetrics(WorkerId worker_id,
                               std::uint64_t static_entities,
                               std::uint64_t dynamic_entities,
                               std::uint64_t visibility_observers,
                               std::uint64_t visible_other_player_balls) noexcept;
 
-    [[nodiscard]] MetricsSnapshot CollectSnapshotAndResetTickWindows();
+    [[nodiscard]] MetricsSnapshot CollectSnapshotAndResetRoomTickResponseTimes();
 
 private:
     std::atomic<std::uint64_t> net_connections_current_{0};
@@ -64,9 +63,8 @@ private:
     std::atomic<std::uint64_t> io_send_calls_{0};
     std::atomic<std::uint64_t> io_nonempty_flushes_{0};
     std::atomic<std::uint64_t> io_frames_at_flush_{0};
-    std::vector<std::uint64_t> worker_tick_cost_us_window_max_;
-    std::vector<std::mutex> worker_tick_window_mutexes_;
-    std::vector<std::vector<std::uint64_t>> worker_tick_cost_us_samples_;
+    std::vector<std::mutex> room_tick_response_time_mutexes_;
+    std::vector<std::vector<std::uint64_t>> room_tick_response_time_samples_;
     std::vector<std::atomic<std::uint64_t>> worker_static_entities_;
     std::vector<std::atomic<std::uint64_t>> worker_dynamic_entities_;
     std::vector<std::atomic<std::uint64_t>> worker_visibility_observers_;
