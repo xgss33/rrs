@@ -1,23 +1,33 @@
 # Build outputs
-build/
-cmake-build-*/
-out/
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+/compile_commands.json
 
-# Runtime local files
-logs/
-tmp/
-docs/
+# Runtime artifacts
+/logs/
+/tmp/
+/core
+/core.*
 
-# Local profiling scratch
+# Profiling artifacts
+/perf/flamegraphs/
 perf.data*
 perf_*.data
 out.perf
 out_*.perf
 *.folded
-scripts/local/
+
+# Local environment
+.env
+.env.*
+!.env.example
 
 # Local editor/system files
 .idea/
 .vscode/
+__pycache__/
+*.pyc
 .DS_Store
 Thumbs.db
