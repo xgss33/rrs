@@ -313,23 +313,57 @@ void WorkerThread::PublishSnapshotUpdates(
     const Room::TickResult& result,
     const std::vector<SessionId>& excluded_sessions)
 {
-    rooms_.ForEachActiveSessionInRoom(room_id, [this, &result, &excluded_sessions](const Session& session) {
-        if (std::find(excluded_sessions.begin(), excluded_sessions.end(), session.session_id) != excluded_sessions.end()) {
-            return;
+    auto messages_by_io = std::vector<std::vector<WorkerToIoMessage>>(io_inboxes_.size());
+    if (!messages_by_io.empty()) {
+        const auto expected_messages_per_io =
+            (result.snapshot_updates.size() + messages_by_io.size() - 1) / messages_by_io.size();
+        for (auto& messages : messages_by_io) {
+            messages.reserve(expected_messages_per_io);
+        }
+    }
+
+    rooms_.ForEachActiveSessionInRoom(
+        room_id,
+        [this, &result, &excluded_sessions, &messages_by_io](const Session& session) {
+            if (std::find(excluded_sessions.begin(), excluded_sessions.end(), session.session_id)
+                != excluded_sessions.end()) {
+                return;
+            }
+
+            const auto* update = FindSnapshotUpdate(result.snapshot_updates, session.player_id);
+            if (update == nullptr) {
+                return;
+            }
+
+            const auto io_index = static_cast<std::size_t>(session.io_thread_id.value());
+            if (io_index >= messages_by_io.size()) {
+                Logger::Warn("[Worker] drop message session={} reason=io_inbox_not_found", session.session_id.value());
+                return;
+            }
+
+            const auto& food_updates = update->full_reset ? result.food_baseline : result.food_updates;
+            auto encoded_frame = std::make_shared<const std::string>(
+                EncodeFrame(ServerMessageType::kSnapshot, EncodeSnapshotPayload(*update, food_updates)));
+            messages_by_io[io_index].push_back(WorkerToIoMessage{
+                .session = session,
+                .encoded_frame = std::move(encoded_frame),
+            });
+        });
+
+    for (std::size_t io_index = 0; io_index < messages_by_io.size(); ++io_index) {
+        auto& messages = messages_by_io[io_index];
+        if (messages.empty()) {
+            continue;
         }
 
-        const auto* update = FindSnapshotUpdate(result.snapshot_updates, session.player_id);
-        if (update == nullptr) {
-            return;
+        if (!io_inboxes_[io_index].PushBatch(std::move(messages))) {
+            for (const auto& message : messages) {
+                Logger::Warn(
+                    "[Worker] drop message session={} reason=io_inbox_push_failed",
+                    message.session.session_id.value());
+            }
         }
-        const auto& food_updates = update->full_reset ? result.food_baseline : result.food_updates;
-        auto encoded_frame = std::make_shared<const std::string>(
-            EncodeFrame(ServerMessageType::kSnapshot, EncodeSnapshotPayload(*update, food_updates)));
-        PushToIo(session, WorkerToIoMessage{
-                              .session = session,
-                              .encoded_frame = std::move(encoded_frame),
-                          });
-    });
+    }
 }
 
 void WorkerThread::PushToIo(const Session& session, WorkerToIoMessage message)

@@ -36,6 +36,27 @@ public:
         }
     }
 
+    void PushBatch(std::vector<T>&& messages)
+    {
+        if (messages.empty()) {
+            return;
+        }
+
+        bool should_notify = false;
+        {
+            std::scoped_lock lock(mutex_);
+            should_notify = queue_.empty();
+            queue_.insert(
+                queue_.end(),
+                std::make_move_iterator(messages.begin()),
+                std::make_move_iterator(messages.end()));
+        }
+
+        if (should_notify && notify_callback_) {
+            notify_callback_();
+        }
+    }
+
     [[nodiscard]] std::vector<T> Drain()
     {
         std::deque<T> drained;
@@ -68,6 +89,16 @@ public:
         }
 
         mailbox_->Push(std::move(message));
+        return true;
+    }
+
+    [[nodiscard]] bool PushBatch(std::vector<T>&& messages) const
+    {
+        if (mailbox_ == nullptr) {
+            return false;
+        }
+
+        mailbox_->PushBatch(std::move(messages));
         return true;
     }
 
