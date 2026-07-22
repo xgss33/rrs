@@ -2,7 +2,6 @@
 
 #include "rrs/core/Identifiers.h"
 #include "rrs/math/Vector2.h"
-#include "rrs/runtime/Session.h"
 #include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/PlayerInput.h"
@@ -38,15 +37,6 @@ constexpr std::uint16_t BallMask(std::size_t ball_index)
 bool IsBallActive(const PlayerEntity& player, std::size_t ball_index)
 {
     return (player.active_ball_mask & BallMask(ball_index)) != 0;
-}
-
-bool RequiresFullSnapshot(const std::vector<Room::Event>& events, PlayerId player_id)
-{
-    return std::any_of(events.begin(), events.end(), [player_id](const Room::Event& event) {
-        return event.session.player_id == player_id
-            && (event.type == Room::EventType::kJoinAccepted
-                || event.type == Room::EventType::kReconnectAccepted);
-    });
 }
 
 FoodSnapshotUpdate MakeFoodSnapshotUpdate(std::size_t food_index, const FoodEntity& food)
@@ -122,6 +112,8 @@ Room::TickResult Room::Tick()
 {
     const auto tick_start = next_tick_time_;
     auto result = TickResult{};
+    const auto was_match_over = match_over_;
+    visible_other_player_ball_count_ = 0;
 
     ++tick_seq_;
     const auto player_inputs = ProcessCommands(TakeCommandsForTick(tick_start), result);
@@ -136,13 +128,7 @@ Room::TickResult Room::Tick()
         UpdateMatchState();
     }
 
-    result.snapshot_updates = BuildSnapshotUpdates(result.events, !result.food_updates.empty());
-    if (std::any_of(
-            result.snapshot_updates.begin(),
-            result.snapshot_updates.end(),
-            [](const ObserverSnapshotUpdate& update) { return update.update.full_reset; })) {
-        result.food_baseline = BuildFoodSnapshotBaseline();
-    }
+    result.match_ended = !was_match_over && match_over_;
 
     next_tick_time_ += tick_interval_;
     return result;
@@ -199,21 +185,18 @@ std::vector<Room::AggregatedPlayerInput> Room::ProcessCommands(const std::vector
     for (const auto& command : commands) {
         switch (command.type) {
         case CommandType::kJoin:
-            JoinPlayer(command.session, result);
-            break;
-        case CommandType::kReconnect:
-            ReconnectPlayer(command.session, result);
+            JoinPlayer(command.session_id, command.player_id, result);
             break;
         case CommandType::kPlayerInput: {
             const auto iterator = std::find_if(
                 player_inputs.begin(),
                 player_inputs.end(),
-                [player_id = command.session.player_id](const AggregatedPlayerInput& input) {
+                [player_id = command.player_id](const AggregatedPlayerInput& input) {
                     return input.player_id == player_id;
                 });
             if (iterator == player_inputs.end()) {
                 player_inputs.push_back(AggregatedPlayerInput{
-                    .player_id = command.session.player_id,
+                    .player_id = command.player_id,
                     .input = command.input,
                 });
             } else {
@@ -224,7 +207,7 @@ std::vector<Room::AggregatedPlayerInput> Room::ProcessCommands(const std::vector
             break;
         }
         case CommandType::kLeave:
-            LeavePlayer(command.session, result);
+            LeavePlayer(command.session_id, command.player_id, result);
             break;
         }
     }
@@ -232,11 +215,11 @@ std::vector<Room::AggregatedPlayerInput> Room::ProcessCommands(const std::vector
     return player_inputs;
 }
 
-void Room::JoinPlayer(const Session& session, TickResult& result)
+void Room::JoinPlayer(SessionId session_id, PlayerId player_id, TickResult& result)
 {
-    if (FindPlayer(session.player_id) == nullptr) {
+    if (FindPlayer(player_id) == nullptr) {
         auto player = PlayerEntity{
-            .player_id = session.player_id,
+            .player_id = player_id,
             .input_direction = {},
             .respawn_tick = 0,
             .active_ball_mask = BallMask(0),
@@ -251,15 +234,8 @@ void Room::JoinPlayer(const Session& session, TickResult& result)
 
     result.events.push_back(Event{
         .type = EventType::kJoinAccepted,
-        .session = session,
-    });
-}
-
-void Room::ReconnectPlayer(const Session& session, TickResult& result)
-{
-    result.events.push_back(Event{
-        .type = FindPlayer(session.player_id) != nullptr ? EventType::kReconnectAccepted : EventType::kReconnectRejected,
-        .session = session,
+        .session_id = session_id,
+        .player_id = player_id,
     });
 }
 
@@ -278,20 +254,21 @@ void Room::ApplyMovementInputs(const std::vector<AggregatedPlayerInput>& inputs)
     }
 }
 
-void Room::LeavePlayer(const Session& session, TickResult& result)
+void Room::LeavePlayer(SessionId session_id, PlayerId player_id, TickResult& result)
 {
-    std::erase_if(pending_commands_, [session_id = session.session_id](const Command& command) {
-        return command.session.session_id == session_id;
+    std::erase_if(pending_commands_, [session_id](const Command& command) {
+        return command.session_id == session_id;
     });
-    std::erase_if(players_, [player_id = session.player_id](const PlayerEntity& player) {
+    std::erase_if(players_, [player_id](const PlayerEntity& player) {
         return player.player_id == player_id;
     });
-    player_visibility_tracker_.RemoveObserver(session.player_id);
-    snapshot_delta_tracker_.RemoveObserver(session.player_id);
+    player_visibility_tracker_.RemoveObserver(player_id);
+    snapshot_delta_tracker_.RemoveObserver(player_id);
 
     result.events.push_back(Event{
         .type = EventType::kPlayerLeft,
-        .session = session,
+        .session_id = session_id,
+        .player_id = player_id,
     });
 }
 
@@ -547,47 +524,48 @@ void Room::UpdateMatchState()
     }
 }
 
-std::vector<Room::ObserverSnapshotUpdate> Room::BuildSnapshotUpdates(
-    const std::vector<Event>& events,
+std::optional<SnapshotUpdate> Room::BuildSnapshot(
+    PlayerId observer_player_id,
+    bool force_full_reset,
     bool has_food_updates)
 {
-    auto updates = std::vector<ObserverSnapshotUpdate>{};
-    updates.reserve(players_.size());
-    const auto winner = match_over_ ? std::optional{winner_player_id_} : std::nullopt;
-    visible_other_player_ball_count_ = 0;
+    const auto observer_iterator = std::find_if(
+        players_.begin(),
+        players_.end(),
+        [observer_player_id](const PlayerEntity& player) {
+            return player.player_id == observer_player_id;
+        });
+    if (observer_iterator == players_.end()) {
+        return std::nullopt;
+    }
 
-    for (std::size_t observer_player_index = 0; observer_player_index < players_.size(); ++observer_player_index) {
-        const auto observer_player_id = players_[observer_player_index].player_id;
-        const auto& player_visibility = player_visibility_tracker_.UpdateForObserver(observer_player_index, players_);
-        for (const auto& visible_player : player_visibility.players) {
-            if (visible_player.player_id != observer_player_id) {
-                visible_other_player_ball_count_ += std::popcount(visible_player.ball_mask);
-            }
-        }
-        auto update = snapshot_delta_tracker_.BuildUpdate(
-            observer_player_id,
-            tick_seq_,
-            player_visibility,
-            players_,
-            winner,
-            RequiresFullSnapshot(events, observer_player_id));
-        if (!update && has_food_updates) {
-            update = SnapshotUpdate{
-                .tick_seq = tick_seq_,
-                .full_reset = false,
-                .player_updates = {},
-                .removed_player_ids = {},
-                .winner_player_id = std::nullopt,
-            };
-        }
-        if (update) {
-            updates.push_back(ObserverSnapshotUpdate{
-                .observer_player_id = observer_player_id,
-                .update = std::move(*update),
-            });
+    const auto observer_player_index = static_cast<std::size_t>(
+        std::distance(players_.begin(), observer_iterator));
+    const auto winner = match_over_ ? std::optional{winner_player_id_} : std::nullopt;
+    const auto& player_visibility = player_visibility_tracker_.UpdateForObserver(observer_player_index, players_);
+    for (const auto& visible_player : player_visibility.players) {
+        if (visible_player.player_id != observer_player_id) {
+            visible_other_player_ball_count_ += std::popcount(visible_player.ball_mask);
         }
     }
-    return updates;
+
+    auto update = snapshot_delta_tracker_.BuildUpdate(
+        observer_player_id,
+        tick_seq_,
+        player_visibility,
+        players_,
+        winner,
+        force_full_reset);
+    if (!update && has_food_updates) {
+        update = SnapshotUpdate{
+            .tick_seq = tick_seq_,
+            .full_reset = false,
+            .player_updates = {},
+            .removed_player_ids = {},
+            .winner_player_id = std::nullopt,
+        };
+    }
+    return update;
 }
 
 std::size_t Room::dynamic_entity_count() const
@@ -607,6 +585,12 @@ std::vector<FoodSnapshotUpdate> Room::BuildFoodSnapshotBaseline() const
         baseline.push_back(MakeFoodSnapshotUpdate(food_index, foods_[food_index]));
     }
     return baseline;
+}
+
+void Room::RemoveSnapshotObserver(PlayerId player_id)
+{
+    player_visibility_tracker_.RemoveObserver(player_id);
+    snapshot_delta_tracker_.RemoveObserver(player_id);
 }
 
 Vector2 Room::FindPlayerSpawnPosition()

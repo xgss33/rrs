@@ -1,15 +1,22 @@
 #pragma once
 
 #include "rrs/core/Identifiers.h"
+#include "rrs/runtime/ConnectionHandle.h"
+
+#include <optional>
 
 namespace rrs {
 
+enum class SessionState {
+    kJoining,
+    kActive,
+};
+
 struct Session {
-    SessionId session_id;
-    Generation generation{1};
     PlayerId player_id;
-    IoThreadId io_thread_id;
-    WorkerId worker_id;
+    RoomId room_id;
+    SessionState state{SessionState::kJoining};
+    std::optional<ConnectionHandle> connection;
 };
 
 } // namespace rrs

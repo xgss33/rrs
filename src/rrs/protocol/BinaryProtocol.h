@@ -47,7 +47,7 @@ enum class BinaryFrameDecodeStatus {
 [[nodiscard]] bool IsValidLeaveRequest(const BinaryFrame& frame);
 
 [[nodiscard]] std::string EncodeFrame(ServerMessageType message_type, std::string_view payload);
-[[nodiscard]] std::string EncodeSessionPayload(SessionId session_id, Generation generation, std::string_view snapshot_payload);
+[[nodiscard]] std::string EncodeSessionPayload(SessionId session_id, std::string_view snapshot_payload);
 [[nodiscard]] std::string EncodeSnapshotPayload(
     const SnapshotUpdate& update,
     std::span<const FoodSnapshotUpdate> food_updates);

@@ -27,16 +27,17 @@ private:
 struct RoomIdTag;
 struct PlayerIdTag;
 struct SessionIdTag;
+struct ConnectionIdTag;
 struct WorkerIdTag;
 struct IoThreadIdTag;
 
 using RoomId = StrongId<RoomIdTag>;
 using PlayerId = StrongId<PlayerIdTag>;
 using SessionId = StrongId<SessionIdTag>;
+using ConnectionId = StrongId<ConnectionIdTag>;
 using WorkerId = StrongId<WorkerIdTag>;
 using IoThreadId = StrongId<IoThreadIdTag>;
 using TickSeq = std::uint64_t;
-using Generation = std::uint64_t;
 
 } // namespace rrs
 

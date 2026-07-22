@@ -31,9 +31,8 @@ add_executable(rrs
     src/rrs/observability/MetricsRegistry.cpp
     src/rrs/observability/MetricsReporter.cpp
     src/rrs/protocol/BinaryProtocol.cpp
-    src/rrs/runtime/SessionRegistry.cpp
-    src/rrs/runtime/WorkerChannels.cpp
-    src/rrs/runtime/WorkerRoomRegistry.cpp
+    src/rrs/runtime/SessionManager.cpp
+    src/rrs/runtime/RoomManager.cpp
     src/rrs/runtime/WorkerThread.cpp
     src/rrs/simulation/PlayerVisibilityTracker.cpp
     src/rrs/simulation/spatial/FoodSpatialIndex.cpp
@@ -154,4 +153,19 @@ if (BUILD_TESTING)
     endif()
 
     add_test(NAME BinaryProtocolTest COMMAND BinaryProtocolTest)
+
+    add_executable(SessionManagerTest
+        tests/runtime/SessionManagerTest.cpp
+        src/rrs/runtime/SessionManager.cpp
+    )
+
+    target_include_directories(SessionManagerTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+    if (MSVC)
+        target_compile_options(SessionManagerTest PRIVATE /W4)
+    else()
+        target_compile_options(SessionManagerTest PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_test(NAME SessionManagerTest COMMAND SessionManagerTest)
 endif()

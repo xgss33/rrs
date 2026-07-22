@@ -5,9 +5,9 @@
 #include "rrs/observability/Logger.h"
 #include "rrs/observability/MetricsRegistry.h"
 #include "rrs/protocol/BinaryProtocol.h"
-#include "rrs/runtime/Session.h"
-#include "rrs/runtime/SessionRegistry.h"
-#include "rrs/runtime/WorkerChannels.h"
+#include "rrs/runtime/ConnectionHandle.h"
+#include "rrs/runtime/SessionManager.h"
+#include "rrs/runtime/WorkerMessages.h"
 #include "rrs/simulation/PlayerInput.h"
 
 #include <array>
@@ -37,14 +37,12 @@ bool IsPeerDisconnectError(int error_number)
 
 IOThread::IOThread(IoThreadId io_thread_id,
                    std::vector<WorkerInboxSender> worker_inboxes,
-                   SessionRegistry& session_registry,
                    MetricsRegistry& metrics,
                    std::size_t outbound_queue_limit)
     : io_thread_id_(io_thread_id)
     , worker_inboxes_(std::move(worker_inboxes))
     , inbox_([this] { Wake(); })
     , outbound_queue_limit_(outbound_queue_limit)
-    , session_registry_(session_registry)
     , accepted_clients_([this] { Wake(); })
     , metrics_(metrics)
 {
@@ -69,15 +67,13 @@ void IOThread::Start()
 
     epoll_event event{};
     event.events = EPOLLIN;
-    event.data.fd = wake_event_fd_;
+    event.data.u64 = 0;
     if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wake_event_fd_, &event) < 0) {
         throw std::runtime_error("failed to register IO wake eventfd");
     }
 
     Logger::Info("[IO] starting TCP IO thread id={}", io_thread_id_.value());
-    thread_ = std::jthread([this](std::stop_token stop_token) {
-        Run(stop_token);
-    });
+    thread_ = std::jthread([this](std::stop_token stop_token) { Run(stop_token); });
 }
 
 void IOThread::Stop()
@@ -92,7 +88,6 @@ void IOThread::Stop()
         ::close(epoll_fd_);
         epoll_fd_ = -1;
     }
-
     if (wake_event_fd_ >= 0) {
         ::close(wake_event_fd_);
         wake_event_fd_ = -1;
@@ -111,20 +106,13 @@ void IOThread::Wake()
         if (bytes_written == sizeof(kWakeValue)) {
             return;
         }
-
         if (bytes_written < 0 && errno == EINTR) {
             continue;
         }
-
         if (bytes_written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             return;
         }
-
-        if (bytes_written < 0) {
-            Logger::Warn("[IO] wake eventfd write failed id={} error={}", io_thread_id_.value(), std::strerror(errno));
-        } else {
-            Logger::Warn("[IO] wake eventfd short write id={} bytes={}", io_thread_id_.value(), bytes_written);
-        }
+        Logger::Warn("[IO] wake eventfd write failed id={} error={}", io_thread_id_.value(), std::strerror(errno));
         return;
     }
 }
@@ -137,24 +125,139 @@ void IOThread::EnqueueAcceptedClient(int client_fd)
 void IOThread::Run(std::stop_token stop_token)
 {
     SetCurrentThreadName("rrs-io-" + std::to_string(io_thread_id_.value()));
-
     while (!stop_token.stop_requested()) {
-        DrainAcceptedClients();
-        DrainInbox();
-        FlushDirtyClients();
-        PublishSendMetrics();
-        PollSocketEvents(stop_token);
+        for (const auto client_fd : accepted_clients_.Drain()) {
+            const auto flags = ::fcntl(client_fd, F_GETFL, 0);
+            if (flags < 0 || ::fcntl(client_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+                Logger::Warn("[IO] failed to set nonblocking fd={}", client_fd);
+                ::close(client_fd);
+                continue;
+            }
+
+            const auto connection_id = ConnectionId{next_connection_id_++};
+            epoll_event event{};
+            event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
+            event.data.u64 = connection_id.value();
+            if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &event) < 0) {
+                Logger::Warn("[IO] failed to register client fd={} error={}", client_fd, std::strerror(errno));
+                ::close(client_fd);
+                continue;
+            }
+
+            clients_.emplace(connection_id, ClientConnection{
+                                                .fd = client_fd,
+                                                .state = ClientConnection::State::kAwaitingRequest,
+                                                .worker_id = std::nullopt,
+                                                .read_buffer = {},
+                                                .outbound_queue = {},
+                                                .dirty = false,
+                                                .wants_write = false,
+                                            });
+            metrics_.OnConnectionOpened();
+            Logger::Info("[IO] client connected connection={} fd={}", connection_id.value(), client_fd);
+        }
+
+        for (auto& message : inbox_.Drain()) {
+            auto iterator = clients_.find(message.connection.connection_id);
+            if (iterator == clients_.end()) {
+                continue;
+            }
+            auto& client = iterator->second;
+            if (message.activate_connection) {
+                if (client.state != ClientConnection::State::kPending) {
+                    continue;
+                }
+                client.state = ClientConnection::State::kActive;
+            }
+            if (message.close_after_send) {
+                client.state = ClientConnection::State::kClosing;
+            }
+            const auto has_frame = message.encoded_frame != nullptr;
+            if (has_frame
+                && !QueueEncodedFrame(message.connection.connection_id, client, std::move(message.encoded_frame))) {
+                Logger::Warn("[IO] close slow client connection={} outbound_queue_limit={}",
+                             message.connection.connection_id.value(), outbound_queue_limit_);
+                CloseClient(message.connection.connection_id);
+                continue;
+            }
+            if (!has_frame && message.close_after_send) {
+                CloseClient(message.connection.connection_id);
+            }
+        }
+
+        auto dirty_clients = std::move(dirty_clients_);
+        dirty_clients_.clear();
+        for (const auto connection_id : dirty_clients) {
+            auto iterator = clients_.find(connection_id);
+            if (iterator == clients_.end()) {
+                continue;
+            }
+            auto& client = iterator->second;
+            client.dirty = false;
+            if (!FlushClientOutbound(connection_id, client)) {
+                CloseClient(connection_id);
+                continue;
+            }
+            if (client.state == ClientConnection::State::kClosing && client.outbound_queue.empty()) {
+                CloseClient(connection_id);
+            }
+        }
+
+        if (pending_send_metrics_.send_calls != 0
+            || pending_send_metrics_.nonempty_flushes != 0
+            || pending_send_metrics_.frames_at_flush != 0) {
+            metrics_.MergeIoSendMetrics(pending_send_metrics_);
+            pending_send_metrics_ = {};
+        }
+
+        constexpr int kMaxEvents = 64;
+        std::array<epoll_event, kMaxEvents> events{};
+        const auto event_count = ::epoll_wait(epoll_fd_, events.data(), static_cast<int>(events.size()), -1);
+        if (event_count < 0) {
+            if (errno != EINTR) {
+                Logger::Warn("[IO] epoll_wait failed id={} error={}", io_thread_id_.value(), std::strerror(errno));
+            }
+            continue;
+        }
+
+        for (int index = 0; index < event_count && !stop_token.stop_requested(); ++index) {
+            const auto& event = events[static_cast<std::size_t>(index)];
+            if (event.data.u64 != 0) {
+                HandleSocketEvent(ConnectionId{event.data.u64}, event.events);
+                continue;
+            }
+
+            while (true) {
+                std::uint64_t value = 0;
+                const auto bytes_read = ::read(wake_event_fd_, &value, sizeof(value));
+                if (bytes_read == sizeof(value)) {
+                    continue;
+                }
+                if (bytes_read < 0 && errno == EINTR) {
+                    continue;
+                }
+                if (bytes_read < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                    Logger::Warn("[IO] wake eventfd read failed id={} error={}",
+                                 io_thread_id_.value(), std::strerror(errno));
+                }
+                break;
+            }
+        }
     }
 
-    PublishSendMetrics();
+    if (pending_send_metrics_.send_calls != 0
+        || pending_send_metrics_.nonempty_flushes != 0
+        || pending_send_metrics_.frames_at_flush != 0) {
+        metrics_.MergeIoSendMetrics(pending_send_metrics_);
+        pending_send_metrics_ = {};
+    }
     while (!clients_.empty()) {
         CloseClient(clients_.begin()->first);
     }
-
-    Logger::Info("[IO] TCP IO thread stopped sessions={}", client_fd_by_session_.size());
+    Logger::Info("[IO] TCP IO thread stopped id={}", io_thread_id_.value());
 }
 
-void IOThread::SetClientWriteInterest(ClientConnection& client, bool enabled)
+void IOThread::SetClientWriteInterest(ConnectionId connection_id, ClientConnection& client, bool enabled)
 {
     if (client.wants_write == enabled || epoll_fd_ < 0) {
         return;
@@ -165,517 +268,289 @@ void IOThread::SetClientWriteInterest(ClientConnection& client, bool enabled)
     if (enabled) {
         event.events |= EPOLLOUT;
     }
-    event.data.fd = client.fd;
-
+    event.data.u64 = connection_id.value();
     if (::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, client.fd, &event) < 0) {
-        Logger::Warn("[IO] failed to update client epoll interest fd={} error={}", client.fd, std::strerror(errno));
+        Logger::Warn("[IO] failed to update client epoll interest connection={} fd={} error={}",
+                     connection_id.value(), client.fd, std::strerror(errno));
         return;
     }
-
     client.wants_write = enabled;
 }
 
-void IOThread::DrainWakeEvent()
+void IOThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t events)
 {
-    if (wake_event_fd_ < 0) {
-        return;
-    }
-
-    while (true) {
-        std::uint64_t value = 0;
-        const auto bytes_read = ::read(wake_event_fd_, &value, sizeof(value));
-        if (bytes_read == sizeof(value)) {
-            continue;
-        }
-
-        if (bytes_read < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            return;
-        }
-
-        if (bytes_read < 0 && errno == EINTR) {
-            continue;
-        }
-
-        if (bytes_read < 0) {
-            Logger::Warn("[IO] wake eventfd read failed id={} error={}", io_thread_id_.value(), std::strerror(errno));
-        }
-        return;
-    }
-}
-
-void IOThread::PollSocketEvents(std::stop_token stop_token)
-{
-    constexpr int kMaxEvents = 64;
-    std::array<epoll_event, kMaxEvents> events{};
-
-    const auto event_count = ::epoll_wait(epoll_fd_, events.data(), static_cast<int>(events.size()), -1);
-    if (event_count < 0) {
-        if (errno != EINTR) {
-            Logger::Warn("[IO] epoll_wait failed id={} error={}", io_thread_id_.value(), std::strerror(errno));
-        }
-        return;
-    }
-
-    for (int event_index = 0; event_index < event_count && !stop_token.stop_requested(); ++event_index) {
-        const auto fd = events[static_cast<std::size_t>(event_index)].data.fd;
-        const auto event_mask = events[static_cast<std::size_t>(event_index)].events;
-        if (fd == wake_event_fd_) {
-            DrainWakeEvent();
-            continue;
-        }
-
-        HandleSocketEvent(fd, event_mask);
-    }
-}
-
-void IOThread::DrainAcceptedClients()
-{
-    for (auto client_fd : accepted_clients_.Drain()) {
-        const auto flags = ::fcntl(client_fd, F_GETFL, 0);
-        if (flags < 0 || ::fcntl(client_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-            Logger::Warn("[IO] failed to set nonblocking fd={}", client_fd);
-            ::close(client_fd);
-            continue;
-        }
-
-        epoll_event event{};
-        event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
-        event.data.fd = client_fd;
-        if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &event) < 0) {
-            Logger::Warn("[IO] failed to register client fd={} error={}", client_fd, std::strerror(errno));
-            ::close(client_fd);
-            continue;
-        }
-
-        clients_.emplace(client_fd, ClientConnection{
-                                      .fd = client_fd,
-                                      .read_buffer = {},
-                                      .session = std::nullopt,
-                                      .outbound_queue = {},
-                                      .dirty = false,
-                                      .wants_write = false,
-                                  });
-        metrics_.OnConnectionOpened();
-        Logger::Info("[IO] client connected fd={}", client_fd);
-    }
-}
-
-void IOThread::DrainInbox()
-{
-    for (auto& message : inbox_.Drain()) {
-        const auto route_iterator = client_fd_by_session_.find(message.session.session_id);
-        if (route_iterator == client_fd_by_session_.end()) {
-            continue;
-        }
-
-        auto client_iterator = clients_.find(route_iterator->second);
-        if (client_iterator == clients_.end()) {
-            continue;
-        }
-
-        if (!IsCurrentClientSession(client_iterator->second, message.session)) {
-            continue;
-        }
-
-        const auto client_fd = client_iterator->first;
-        if (!QueueEncodedFrame(client_iterator->second, std::move(message.encoded_frame))) {
-            Logger::Warn("[IO] close slow client fd={} outbound_queue_limit={}", client_fd, outbound_queue_limit_);
-            CloseClient(client_fd);
-        }
-    }
-}
-
-void IOThread::FlushDirtyClients()
-{
-    auto dirty_clients = std::move(dirty_clients_);
-    dirty_clients_.clear();
-
-    for (const auto client_fd : dirty_clients) {
-        auto iterator = clients_.find(client_fd);
-        if (iterator == clients_.end()) {
-            continue;
-        }
-
-        iterator->second.dirty = false;
-        if (!FlushClientOutbound(iterator->second)) {
-            CloseClient(client_fd);
-        }
-    }
-}
-
-void IOThread::PublishSendMetrics()
-{
-    if (pending_send_metrics_.send_calls == 0
-        && pending_send_metrics_.nonempty_flushes == 0
-        && pending_send_metrics_.frames_at_flush == 0) {
-        return;
-    }
-
-    metrics_.MergeIoSendMetrics(pending_send_metrics_);
-    pending_send_metrics_ = {};
-}
-
-void IOThread::HandleSocketEvent(int client_fd, std::uint32_t events)
-{
-    auto iterator = clients_.find(client_fd);
+    auto iterator = clients_.find(connection_id);
     if (iterator == clients_.end()) {
         return;
     }
-
     if ((events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U && (events & EPOLLIN) == 0U) {
-        CloseClient(client_fd);
+        CloseClient(connection_id);
         return;
     }
 
+    enum class ReadStatus {
+        kOpen,
+        kPeerClosed,
+        kError,
+    };
+
+    auto read_status = ReadStatus::kOpen;
     std::vector<BinaryFrame> ready_frames;
-    if ((events & EPOLLIN) != 0U && !ReadClientFrames(iterator->second, ready_frames)) {
-        CloseClient(client_fd);
-        return;
+    if ((events & EPOLLIN) != 0U) {
+        auto& client = iterator->second;
+        char buffer[1024];
+        while (true) {
+            const auto bytes_read = ::recv(client.fd, buffer, sizeof(buffer), 0);
+            if (bytes_read > 0) {
+                client.read_buffer.append(buffer, static_cast<std::size_t>(bytes_read));
+                metrics_.OnBytesRead(static_cast<std::uint64_t>(bytes_read));
+                continue;
+            }
+            if (bytes_read == 0) {
+                read_status = ReadStatus::kPeerClosed;
+                break;
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            if (!IsPeerDisconnectError(errno)) {
+                Logger::Warn("[IO] recv failed fd={} error={}", client.fd, std::strerror(errno));
+            }
+            read_status = IsPeerDisconnectError(errno) ? ReadStatus::kPeerClosed : ReadStatus::kError;
+            break;
+        }
+
+        while (true) {
+            BinaryFrame frame{};
+            const auto decode_status = TryDecodeBinaryFrame(client.read_buffer, frame);
+            if (decode_status == BinaryFrameDecodeStatus::kComplete) {
+                ready_frames.push_back(std::move(frame));
+                continue;
+            }
+            if (decode_status == BinaryFrameDecodeStatus::kInvalid) {
+                Logger::Warn("[IO] invalid frame length fd={} buffered_bytes={}",
+                             client.fd, client.read_buffer.size());
+                read_status = ReadStatus::kError;
+            } else if (read_status != ReadStatus::kOpen && !client.read_buffer.empty()) {
+                Logger::Warn("[IO] incomplete terminal frame fd={} buffered_bytes={}",
+                             client.fd, client.read_buffer.size());
+                read_status = ReadStatus::kError;
+            }
+            break;
+        }
     }
 
     for (const auto& frame : ready_frames) {
-        auto frame_iterator = clients_.find(client_fd);
+        auto frame_iterator = clients_.find(connection_id);
         if (frame_iterator == clients_.end()) {
             return;
         }
-        if (!HandleBinaryFrame(frame_iterator->second, frame)) {
-            CloseClient(client_fd);
-            return;
-        }
-    }
-
-    if ((events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
-        CloseClient(client_fd);
-        return;
-    }
-
-    auto flush_iterator = clients_.find(client_fd);
-    if (flush_iterator != clients_.end() && (events & EPOLLOUT) != 0U && !FlushClientOutbound(flush_iterator->second)) {
-        CloseClient(client_fd);
-    }
-}
-
-bool IOThread::ReadClientFrames(ClientConnection& client, std::vector<BinaryFrame>& ready_frames)
-{
-    char buffer[1024];
-
-    while (true) {
-        const auto bytes_read = ::recv(client.fd, buffer, sizeof(buffer), 0);
-        if (bytes_read > 0) {
-            client.read_buffer.append(buffer, static_cast<std::size_t>(bytes_read));
-            metrics_.OnBytesRead(static_cast<std::uint64_t>(bytes_read));
-            continue;
-        }
-
-        if (bytes_read == 0) {
-            return false;
-        }
-
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (frame_iterator->second.state == ClientConnection::State::kClosing) {
             break;
         }
-        if (errno == EINTR) {
-            continue;
-        }
-        if (IsPeerDisconnectError(errno)) {
-            return false;
-        }
 
-        Logger::Warn("[IO] recv failed fd={} error={}", client.fd, std::strerror(errno));
-        return false;
+        auto& client = frame_iterator->second;
+        switch (static_cast<ClientMessageType>(frame.message_type)) {
+        case ClientMessageType::kJoin: {
+            const auto request = DecodeJoinRequest(frame);
+            if (!request || !request->is_valid()) {
+                QueueErrorFrame(connection_id, client, "JOIN_USAGE");
+                break;
+            }
+            if (client.state != ClientConnection::State::kAwaitingRequest) {
+                QueueErrorFrame(connection_id, client, "ALREADY_JOINED");
+                break;
+            }
+
+            const auto worker_id = WorkerId{(request->value() - 1) % worker_inboxes_.size()};
+            client.worker_id = worker_id;
+            client.state = ClientConnection::State::kPending;
+            (void)worker_inboxes_[static_cast<std::size_t>(worker_id.value())].Push(
+                JoinMessage{ConnectionHandle{io_thread_id_, connection_id}, *request});
+            Logger::Info("[IO] join requested connection={} player={} worker={}",
+                         connection_id.value(), request->value(), worker_id.value());
+            break;
+        }
+        case ClientMessageType::kReconnect: {
+            const auto request = DecodeReconnectRequest(frame);
+            if (!request || !request->is_valid()) {
+                QueueErrorFrame(connection_id, client, "RECONNECT_USAGE");
+                break;
+            }
+            if (client.state != ClientConnection::State::kAwaitingRequest) {
+                QueueErrorFrame(connection_id, client, "ALREADY_JOINED");
+                break;
+            }
+
+            const auto worker_id = GetSessionWorker(*request, worker_inboxes_.size());
+            client.worker_id = worker_id;
+            client.state = ClientConnection::State::kPending;
+            (void)worker_inboxes_[static_cast<std::size_t>(worker_id.value())].Push(
+                ReconnectMessage{ConnectionHandle{io_thread_id_, connection_id}, *request});
+            Logger::Info("[IO] reconnect requested connection={} session={} worker={}",
+                         connection_id.value(), request->value(), worker_id.value());
+            break;
+        }
+        case ClientMessageType::kInput: {
+            const auto request = DecodeInputRequest(frame);
+            if (!request) {
+                QueueErrorFrame(connection_id, client, "INPUT_USAGE");
+                break;
+            }
+            if (client.state != ClientConnection::State::kActive) {
+                QueueErrorFrame(connection_id, client, "NOT_JOINED");
+                break;
+            }
+
+            (void)worker_inboxes_[static_cast<std::size_t>(client.worker_id->value())].Push(
+                InputMessage{ConnectionHandle{io_thread_id_, connection_id}, *request});
+            break;
+        }
+        case ClientMessageType::kLeave:
+            if (!IsValidLeaveRequest(frame)) {
+                QueueErrorFrame(connection_id, client, "LEAVE_USAGE");
+                break;
+            }
+            if (client.state != ClientConnection::State::kActive) {
+                QueueErrorFrame(connection_id, client, "NOT_JOINED");
+                break;
+            }
+
+            (void)worker_inboxes_[static_cast<std::size_t>(client.worker_id->value())].Push(
+                ConnectionMessage{
+                    .connection = ConnectionHandle{io_thread_id_, connection_id},
+                    .action = ConnectionAction::kLeave,
+                });
+            client.state = ClientConnection::State::kClosing;
+            break;
+        default:
+            QueueErrorFrame(connection_id, client, "UNKNOWN_COMMAND");
+            break;
+        }
     }
 
-    while (true) {
-        auto frame = BinaryFrame{};
-        const auto decode_status = TryDecodeBinaryFrame(client.read_buffer, frame);
-        if (decode_status == BinaryFrameDecodeStatus::kIncomplete) {
-            return true;
+    iterator = clients_.find(connection_id);
+    if (iterator == clients_.end()) {
+        return;
+    }
+    if (read_status != ReadStatus::kOpen || (events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
+        CloseClient(connection_id);
+        return;
+    }
+    if (iterator->second.state == ClientConnection::State::kClosing && iterator->second.outbound_queue.empty()) {
+        CloseClient(connection_id);
+        return;
+    }
+    if ((events & EPOLLOUT) != 0U) {
+        if (!FlushClientOutbound(connection_id, iterator->second)) {
+            CloseClient(connection_id);
+            return;
         }
-        if (decode_status == BinaryFrameDecodeStatus::kInvalid) {
-            Logger::Warn("[IO] invalid frame length fd={} buffered_bytes={}", client.fd, client.read_buffer.size());
-            return false;
+        if (iterator->second.state == ClientConnection::State::kClosing && iterator->second.outbound_queue.empty()) {
+            CloseClient(connection_id);
         }
-
-        ready_frames.push_back(std::move(frame));
     }
 }
 
-bool IOThread::FlushClientOutbound(ClientConnection& client)
+bool IOThread::FlushClientOutbound(ConnectionId connection_id, ClientConnection& client)
 {
     const auto queue_depth = client.outbound_queue.size();
     if (queue_depth > 0) {
         ++pending_send_metrics_.nonempty_flushes;
         pending_send_metrics_.frames_at_flush += queue_depth;
     }
-
     while (!client.outbound_queue.empty()) {
         auto& pending_write = client.outbound_queue.front();
         const auto& frame = *pending_write.encoded_frame;
         ++pending_send_metrics_.send_calls;
-        const auto bytes_sent = ::send(
-            client.fd,
-            frame.data() + pending_write.offset,
-            frame.size() - pending_write.offset,
-            MSG_NOSIGNAL);
+        const auto bytes_sent = ::send(client.fd,
+                                       frame.data() + pending_write.offset,
+                                       frame.size() - pending_write.offset,
+                                       MSG_NOSIGNAL);
         if (bytes_sent < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                SetClientWriteInterest(client, true);
-                return true;
-            }
             if (errno == EINTR) {
                 continue;
             }
-            if (IsPeerDisconnectError(errno)) {
-                return false;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                SetClientWriteInterest(connection_id, client, true);
+                return true;
             }
-
-            Logger::Warn("[IO] send outbound failed fd={} error={}", client.fd, std::strerror(errno));
+            if (!IsPeerDisconnectError(errno)) {
+                Logger::Warn("[IO] send outbound failed fd={} error={}", client.fd, std::strerror(errno));
+            }
             return false;
         }
-
         if (bytes_sent == 0) {
             return true;
         }
-
         pending_write.offset += static_cast<std::size_t>(bytes_sent);
         metrics_.OnBytesWritten(static_cast<std::uint64_t>(bytes_sent));
         if (pending_write.offset >= frame.size()) {
             client.outbound_queue.pop_front();
         }
     }
-
-    SetClientWriteInterest(client, false);
+    SetClientWriteInterest(connection_id, client, false);
     return true;
 }
 
-void IOThread::CloseClient(int client_fd)
+void IOThread::CloseClient(ConnectionId connection_id)
 {
-    auto iterator = clients_.find(client_fd);
+    auto iterator = clients_.find(connection_id);
     if (iterator == clients_.end()) {
         return;
     }
-
-    Logger::Info("[IO] client closed fd={}", client_fd);
-    UnbindClientSession(iterator->second);
-
-    iterator->second.dirty = false;
+    auto& client = iterator->second;
+    NotifyDisconnect(connection_id, client);
+    Logger::Info("[IO] client closed connection={} fd={}", connection_id.value(), client.fd);
     if (epoll_fd_ >= 0) {
-        ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client_fd, nullptr);
+        ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client.fd, nullptr);
     }
-    ::close(client_fd);
+    ::close(client.fd);
     clients_.erase(iterator);
     metrics_.OnConnectionClosed();
 }
 
-bool IOThread::HandleBinaryFrame(ClientConnection& client, const BinaryFrame& frame)
+void IOThread::NotifyDisconnect(ConnectionId connection_id, ClientConnection& client)
 {
-    switch (static_cast<ClientMessageType>(frame.message_type)) {
-    case ClientMessageType::kJoin: {
-        const auto request = DecodeJoinRequest(frame);
-        if (!request || !request->is_valid()) {
-            return QueueErrorFrame(client, "JOIN_USAGE");
-        }
-        return HandleJoin(client, *request);
-    }
-    case ClientMessageType::kReconnect: {
-        const auto request = DecodeReconnectRequest(frame);
-        if (!request || !request->is_valid()) {
-            return QueueErrorFrame(client, "RECONNECT_USAGE");
-        }
-        return HandleReconnect(client, *request);
-    }
-    case ClientMessageType::kInput: {
-        const auto request = DecodeInputRequest(frame);
-        if (!request) {
-            return QueueErrorFrame(client, "INPUT_USAGE");
-        }
-        return HandleInput(client, *request);
-    }
-    case ClientMessageType::kLeave: {
-        if (!IsValidLeaveRequest(frame)) {
-            return QueueErrorFrame(client, "LEAVE_USAGE");
-        }
-        HandleLeave(client);
-        return true;
-    }
-    }
-
-    return QueueErrorFrame(client, "UNKNOWN_COMMAND");
-}
-
-bool IOThread::HandleJoin(ClientConnection& client, PlayerId player_id)
-{
-    if (client.session.has_value()) {
-        return QueueErrorFrame(client, "ALREADY_JOINED");
-    }
-
-    const auto worker_id = SelectWorkerForJoin(player_id);
-    const auto session = session_registry_.Create(player_id, io_thread_id_, worker_id);
-    BindClientSession(client, session);
-
-    if (!PushToWorker(
-            worker_id,
-            IoToWorkerMessage{
-                .type = IoToWorkerMessageType::kJoin,
-                .session = session,
-                .input = {},
-            })) {
-        session_registry_.Remove(session.session_id);
-        UnbindClientSession(client);
-        return QueueErrorFrame(client, "WORKER_QUEUE_UNAVAILABLE");
-    }
-
-    Logger::Info("[IO] join requested fd={} session={} player={} worker={} generation={}",
-                 client.fd,
-                 session.session_id.value(),
-                 session.player_id.value(),
-                 session.worker_id.value(),
-                 session.generation);
-    return true;
-}
-
-bool IOThread::HandleReconnect(ClientConnection& client, SessionId session_id)
-{
-    if (client.session.has_value()) {
-        return QueueErrorFrame(client, "ALREADY_JOINED");
-    }
-
-    const auto session = session_registry_.Reconnect(session_id, io_thread_id_);
-    if (!session) {
-        return QueueErrorFrame(client, "SESSION_NOT_FOUND");
-    }
-
-    BindClientSession(client, *session);
-    if (!PushToWorker(
-            session->worker_id,
-            IoToWorkerMessage{
-                .type = IoToWorkerMessageType::kReconnect,
-                .session = *session,
-                .input = {},
-            })) {
-        UnbindClientSession(client);
-        return QueueErrorFrame(client, "WORKER_QUEUE_UNAVAILABLE");
-    }
-
-    Logger::Info("[IO] reconnect requested fd={} session={} player={} worker={} generation={}",
-                 client.fd,
-                 session->session_id.value(),
-                 session->player_id.value(),
-                 session->worker_id.value(),
-                 session->generation);
-    return true;
-}
-
-bool IOThread::HandleInput(ClientConnection& client, PlayerInput input)
-{
-    if (!client.session) {
-        return QueueErrorFrame(client, "NOT_JOINED");
-    }
-
-    if (!PushToWorker(
-            client.session->worker_id,
-            IoToWorkerMessage{
-                .type = IoToWorkerMessageType::kPlayerInput,
-                .session = *client.session,
-                .input = input,
-            })) {
-        return QueueErrorFrame(client, "WORKER_QUEUE_UNAVAILABLE");
-    }
-    return true;
-}
-
-void IOThread::HandleLeave(ClientConnection& client)
-{
-    if (!client.session) {
+    if ((client.state != ClientConnection::State::kPending
+         && client.state != ClientConnection::State::kActive)) {
         return;
     }
-
-    const auto session = *client.session;
-    session_registry_.Remove(session.session_id);
-    UnbindClientSession(client);
-    if (!PushToWorker(
-            session.worker_id,
-            IoToWorkerMessage{
-                .type = IoToWorkerMessageType::kLeave,
-                .session = session,
-                .input = {},
-            })) {
-        Logger::Warn("[IO] failed to push leave session={} worker={}", session.session_id.value(), session.worker_id.value());
-    }
-    Logger::Info("[IO] leave requested fd={} session={} player={}",
-                 client.fd,
-                 session.session_id.value(),
-                 session.player_id.value());
+    (void)worker_inboxes_[static_cast<std::size_t>(client.worker_id->value())].Push(
+        ConnectionMessage{
+            .connection = ConnectionHandle{io_thread_id_, connection_id},
+            .action = ConnectionAction::kDisconnected,
+        });
 }
 
-void IOThread::BindClientSession(ClientConnection& client, const Session& session)
-{
-    client.session = session;
-    client_fd_by_session_[session.session_id] = client.fd;
-}
-
-void IOThread::UnbindClientSession(ClientConnection& client)
-{
-    if (!client.session) {
-        return;
-    }
-
-    const auto route_iterator = client_fd_by_session_.find(client.session->session_id);
-    if (route_iterator != client_fd_by_session_.end() && route_iterator->second == client.fd) {
-        client_fd_by_session_.erase(route_iterator);
-    }
-    client.session = std::nullopt;
-}
-
-bool IOThread::QueueEncodedFrame(ClientConnection& client, std::shared_ptr<const std::string> encoded_frame)
+bool IOThread::QueueEncodedFrame(ConnectionId connection_id,
+                                 ClientConnection& client,
+                                 std::shared_ptr<const std::string> encoded_frame)
 {
     if (client.outbound_queue.size() >= outbound_queue_limit_) {
         return false;
     }
-
-    client.outbound_queue.push_back(PendingWrite{
-        .encoded_frame = std::move(encoded_frame),
-        .offset = 0,
-    });
+    client.outbound_queue.push_back(PendingWrite{.encoded_frame = std::move(encoded_frame), .offset = 0});
     if (!client.dirty) {
         client.dirty = true;
-        dirty_clients_.push_back(client.fd);
+        dirty_clients_.push_back(connection_id);
     }
     return true;
 }
 
-bool IOThread::QueueErrorFrame(ClientConnection& client, const std::string& message)
+void IOThread::QueueErrorFrame(ConnectionId connection_id, ClientConnection& client, const std::string& message)
 {
-    return QueueEncodedFrame(client, std::make_shared<const std::string>(EncodeFrame(ServerMessageType::kError, message)));
-}
-
-bool IOThread::IsCurrentClientSession(const ClientConnection& client, const Session& session) const
-{
-    return client.session
-        && client.session->session_id == session.session_id
-        && client.session->generation == session.generation
-        && client.session->io_thread_id == io_thread_id_;
-}
-
-WorkerId IOThread::SelectWorkerForJoin(PlayerId player_id) const
-{
-    const auto worker_count = worker_inboxes_.size();
-    return WorkerId{(player_id.value() - 1) % worker_count};
-}
-
-bool IOThread::PushToWorker(WorkerId worker_id, IoToWorkerMessage message)
-{
-    const auto worker_index = static_cast<std::size_t>(worker_id.value());
-    if (worker_index >= worker_inboxes_.size()) {
-        Logger::Warn("[IO] worker inbox unavailable worker={}", worker_id.value());
-        return false;
+    NotifyDisconnect(connection_id, client);
+    client.worker_id.reset();
+    client.state = ClientConnection::State::kClosing;
+    if (!QueueEncodedFrame(connection_id,
+                           client,
+                           std::make_shared<const std::string>(EncodeFrame(ServerMessageType::kError, message)))) {
+        CloseClient(connection_id);
     }
-
-    if (!worker_inboxes_[worker_index].Push(std::move(message))) {
-        Logger::Warn("[IO] worker inbox invalid worker={}", worker_id.value());
-        return false;
-    }
-    return true;
 }
 
 } // namespace rrs

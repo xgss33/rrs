@@ -19,7 +19,7 @@ constexpr std::size_t kJoinPayloadSize = 8;
 constexpr std::size_t kReconnectPayloadSize = 8;
 constexpr std::size_t kInputPayloadSize = 5;
 constexpr std::size_t kLeavePayloadSize = 0;
-constexpr std::size_t kSessionPrefixSize = 16;
+constexpr std::size_t kSessionPrefixSize = 8;
 constexpr std::size_t kSnapshotFixedPayloadSize = 7;
 constexpr std::size_t kSnapshotPlayerFixedSize = 12;
 constexpr std::size_t kSnapshotBallSize = 6;
@@ -166,12 +166,11 @@ std::string EncodeFrame(ServerMessageType message_type, std::string_view payload
     return output;
 }
 
-std::string EncodeSessionPayload(SessionId session_id, Generation generation, std::string_view snapshot_payload)
+std::string EncodeSessionPayload(SessionId session_id, std::string_view snapshot_payload)
 {
     std::string output;
     output.reserve(kSessionPrefixSize + snapshot_payload.size());
     AppendU64(output, session_id.value());
-    AppendU64(output, generation);
     output.append(snapshot_payload);
     return output;
 }

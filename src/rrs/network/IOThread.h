@@ -3,9 +3,7 @@
 #include "rrs/core/Identifiers.h"
 #include "rrs/observability/MetricsRegistry.h"
 #include "rrs/runtime/Mailbox.h"
-#include "rrs/runtime/Session.h"
-#include "rrs/runtime/WorkerChannels.h"
-#include "rrs/simulation/PlayerInput.h"
+#include "rrs/runtime/WorkerMessages.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,15 +17,10 @@
 
 namespace rrs {
 
-struct BinaryFrame;
-
-class SessionRegistry;
-
 class IOThread {
 public:
     IOThread(IoThreadId io_thread_id,
              std::vector<WorkerInboxSender> worker_inboxes,
-             SessionRegistry& session_registry,
              MetricsRegistry& metrics,
              std::size_t outbound_queue_limit);
     ~IOThread();
@@ -52,8 +45,14 @@ private:
 
     struct ClientConnection {
         int fd{-1};
+        enum class State {
+            kAwaitingRequest,
+            kPending,
+            kActive,
+            kClosing,
+        } state{State::kAwaitingRequest};
+        std::optional<WorkerId> worker_id;
         std::string read_buffer;
-        std::optional<Session> session;
         std::deque<PendingWrite> outbound_queue;
         bool dirty{false};
         bool wants_write{false};
@@ -61,45 +60,30 @@ private:
 
     void Run(std::stop_token stop_token);
     void Wake();
-    void SetClientWriteInterest(ClientConnection& client, bool enabled);
-    void DrainWakeEvent();
-    void DrainAcceptedClients();
-    void DrainInbox();
-    void FlushDirtyClients();
-    void PollSocketEvents(std::stop_token stop_token);
-    void HandleSocketEvent(int client_fd, std::uint32_t events);
-    [[nodiscard]] bool ReadClientFrames(ClientConnection& client, std::vector<BinaryFrame>& ready_frames);
-    [[nodiscard]] bool FlushClientOutbound(ClientConnection& client);
-    void CloseClient(int client_fd);
-    [[nodiscard]] bool HandleBinaryFrame(ClientConnection& client, const BinaryFrame& frame);
-    bool HandleJoin(ClientConnection& client, PlayerId player_id);
-    bool HandleReconnect(ClientConnection& client, SessionId session_id);
-    bool HandleInput(ClientConnection& client, PlayerInput input);
-    void HandleLeave(ClientConnection& client);
-    void BindClientSession(ClientConnection& client, const Session& session);
-    void UnbindClientSession(ClientConnection& client);
-    [[nodiscard]] bool QueueEncodedFrame(ClientConnection& client, std::shared_ptr<const std::string> encoded_frame);
-    [[nodiscard]] bool QueueErrorFrame(ClientConnection& client, const std::string& message);
-    bool IsCurrentClientSession(const ClientConnection& client, const Session& session) const;
-    WorkerId SelectWorkerForJoin(PlayerId player_id) const;
-    [[nodiscard]] bool PushToWorker(WorkerId worker_id, IoToWorkerMessage message);
+    void SetClientWriteInterest(ConnectionId connection_id, ClientConnection& client, bool enabled);
+    void HandleSocketEvent(ConnectionId connection_id, std::uint32_t events);
+    [[nodiscard]] bool FlushClientOutbound(ConnectionId connection_id, ClientConnection& client);
+    void CloseClient(ConnectionId connection_id);
+    void NotifyDisconnect(ConnectionId connection_id, ClientConnection& client);
+    [[nodiscard]] bool QueueEncodedFrame(
+        ConnectionId connection_id,
+        ClientConnection& client,
+        std::shared_ptr<const std::string> encoded_frame);
+    void QueueErrorFrame(ConnectionId connection_id, ClientConnection& client, const std::string& message);
 
     IoThreadId io_thread_id_;
     std::vector<WorkerInboxSender> worker_inboxes_;
     IoInbox inbox_;
     std::size_t outbound_queue_limit_;
-    SessionRegistry& session_registry_;
-    std::unordered_map<SessionId, int> client_fd_by_session_;
-    std::vector<int> dirty_clients_;
+    std::vector<ConnectionId> dirty_clients_;
     int epoll_fd_{-1};
     int wake_event_fd_{-1};
     Mailbox<int> accepted_clients_;
-    std::unordered_map<int, ClientConnection> clients_;
+    std::unordered_map<ConnectionId, ClientConnection> clients_;
+    ConnectionId::ValueType next_connection_id_{1};
     std::jthread thread_;
 
 private:
-    void PublishSendMetrics();
-
     MetricsRegistry& metrics_;
     IoSendMetrics pending_send_metrics_;
 };

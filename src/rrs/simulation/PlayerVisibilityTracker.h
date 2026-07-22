@@ -27,6 +27,7 @@ public:
         std::span<const PlayerEntity> players);
 
     void RemoveObserver(PlayerId player_id);
+    [[nodiscard]] std::size_t observer_count() const { return visibility_by_observer_.size(); }
 
 private:
     std::unordered_map<PlayerId, PlayerVisibilitySet> visibility_by_observer_;  // 保存每位观察者上一Tick可见球

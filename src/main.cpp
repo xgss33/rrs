@@ -5,8 +5,7 @@
 #include "rrs/observability/Logger.h"
 #include "rrs/observability/MetricsRegistry.h"
 #include "rrs/observability/MetricsReporter.h"
-#include "rrs/runtime/SessionRegistry.h"
-#include "rrs/runtime/WorkerChannels.h"
+#include "rrs/runtime/WorkerMessages.h"
 #include "rrs/runtime/WorkerThread.h"
 
 #include <chrono>
@@ -57,13 +56,12 @@ int main(int argc, char* argv[])
 
         rrs::MetricsRegistry metrics{worker_thread_count};
         rrs::MetricsReporter metrics_reporter{metrics, kMetricsReportInterval};
-        rrs::SessionRegistry session_registry;
-
         WorkerThreads workers;
         workers.reserve(worker_thread_count);
         for (std::uint32_t worker_index = 0; worker_index < worker_thread_count; ++worker_index) {
             workers.push_back(std::make_unique<rrs::WorkerThread>(
                 rrs::WorkerId{worker_index},
+                worker_thread_count,
                 tick_interval,
                 config.max_catch_up_ticks,
                 config.room_capacity,
@@ -82,7 +80,6 @@ int main(int argc, char* argv[])
             io_threads.push_back(std::make_unique<rrs::IOThread>(
                 rrs::IoThreadId{io_index},
                 worker_inboxes,
-                session_registry,
                 metrics,
                 config.outbound_queue_limit));
         }

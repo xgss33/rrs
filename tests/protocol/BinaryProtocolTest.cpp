@@ -85,13 +85,11 @@ void TestSessionPrefix()
 {
     const auto payload = rrs::EncodeSessionPayload(
         rrs::SessionId{0x0102030405060708ULL},
-        0x1112131415161718ULL,
         "snapshot");
     auto expected = std::string{};
     AppendU64(expected, 0x0102030405060708ULL);
-    AppendU64(expected, 0x1112131415161718ULL);
     expected += "snapshot";
-    Expect(payload == expected, "JOIN_OK and RECONNECT_OK keep the 16-byte session prefix");
+    Expect(payload == expected, "JOIN_OK and RECONNECT_OK use the 8-byte session prefix");
 }
 
 void TestSnapshotByteLayout()

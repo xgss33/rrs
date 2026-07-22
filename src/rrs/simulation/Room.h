@@ -2,7 +2,6 @@
 
 #include "rrs/core/Identifiers.h"
 #include "rrs/math/Vector2.h"
-#include "rrs/runtime/Session.h"
 #include "rrs/simulation/FoodEntity.h"
 #include "rrs/simulation/PlayerEntity.h"
 #include "rrs/simulation/PlayerInput.h"
@@ -15,6 +14,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -33,44 +33,43 @@ public:
 
     enum class CommandType {
         kJoin,
-        kReconnect,
         kPlayerInput,
         kLeave,
     };
 
     struct Command {
         CommandType type{CommandType::kPlayerInput};
-        Session session;
+        SessionId session_id;
+        PlayerId player_id;
         PlayerInput input;
         Clock::time_point entered_at;
     };
 
     enum class EventType {
         kJoinAccepted,
-        kReconnectAccepted,
-        kReconnectRejected,
         kPlayerLeft,
     };
 
     struct Event {
         EventType type{EventType::kJoinAccepted};
-        Session session;
-    };
-
-    struct ObserverSnapshotUpdate {
-        PlayerId observer_player_id;
-        SnapshotUpdate update;
+        SessionId session_id;
+        PlayerId player_id;
     };
 
     struct TickResult {
-        std::vector<ObserverSnapshotUpdate> snapshot_updates;
         std::vector<FoodSnapshotUpdate> food_updates;
-        std::vector<FoodSnapshotUpdate> food_baseline;
         std::vector<Event> events;
+        bool match_ended{false};
     };
 
     void EnqueueCommand(Command command);
     [[nodiscard]] TickResult Tick();
+    [[nodiscard]] std::optional<SnapshotUpdate> BuildSnapshot(
+        PlayerId observer_player_id,
+        bool force_full_reset,
+        bool has_food_updates);
+    [[nodiscard]] std::vector<FoodSnapshotUpdate> BuildFoodSnapshotBaseline() const;
+    void RemoveSnapshotObserver(PlayerId player_id);
 
 private:
     struct AggregatedPlayerInput {
@@ -84,10 +83,9 @@ private:
 
     [[nodiscard]] std::vector<Command> TakeCommandsForTick(Clock::time_point tick_start);
     [[nodiscard]] std::vector<AggregatedPlayerInput> ProcessCommands(const std::vector<Command>& commands, TickResult& result);
-    void JoinPlayer(const Session& session, TickResult& result);
-    void ReconnectPlayer(const Session& session, TickResult& result);
+    void JoinPlayer(SessionId session_id, PlayerId player_id, TickResult& result);
     void ApplyMovementInputs(const std::vector<AggregatedPlayerInput>& inputs);
-    void LeavePlayer(const Session& session, TickResult& result);
+    void LeavePlayer(SessionId session_id, PlayerId player_id, TickResult& result);
 
     void ApplySplitInputs(const std::vector<AggregatedPlayerInput>& inputs);
     void SplitPlayer(PlayerEntity& player);
@@ -100,11 +98,6 @@ private:
                                         std::size_t victim_ball_index);
     void RespawnDuePlayers();
     void UpdateMatchState();
-
-    [[nodiscard]] std::vector<ObserverSnapshotUpdate> BuildSnapshotUpdates(
-        const std::vector<Event>& events,
-        bool has_food_updates);
-    [[nodiscard]] std::vector<FoodSnapshotUpdate> BuildFoodSnapshotBaseline() const;
 
     Vector2 FindPlayerSpawnPosition();
     PlayerEntity* FindPlayer(PlayerId player_id);
@@ -129,7 +122,7 @@ private:
 public:
     std::size_t static_entity_count() const { return foods_.size(); }
     std::size_t dynamic_entity_count() const;
-    std::size_t visibility_observer_count() const { return players_.size(); }
+    std::size_t visibility_observer_count() const { return player_visibility_tracker_.observer_count(); }
     std::size_t visible_other_player_ball_count() const { return visible_other_player_ball_count_; }
 
 private:
