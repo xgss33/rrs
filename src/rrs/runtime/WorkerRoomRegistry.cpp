@@ -140,7 +140,8 @@ void WorkerRoomRegistry::UpdateRoomOpenState(RoomId room_id)
         return;
     }
 
-    if (room_iterator->second.session_count >= room_capacity_) {
+    if (!room_iterator->second.room.accepts_joins()
+        || room_iterator->second.session_count >= room_capacity_) {
         std::erase(open_room_ids_, room_id);
         return;
     }

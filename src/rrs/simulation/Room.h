@@ -29,6 +29,7 @@ public:
     RoomId id() const { return room_id_; }
     Clock::time_point next_tick_time() const { return next_tick_time_; }
     std::size_t player_count() const { return players_.size(); }
+    bool accepts_joins() const { return !match_over_; }
 
     enum class CommandType {
         kJoin,
