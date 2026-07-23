@@ -4,6 +4,7 @@
 #include "rrs/observability/Logger.h"
 #include "rrs/observability/MetricsRegistry.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
@@ -17,6 +18,8 @@
 namespace rrs {
 
 namespace {
+
+constexpr auto kReportInterval = std::chrono::seconds{5};
 
 struct ProcessCpuSample {
     std::chrono::steady_clock::time_point sampled_at;
@@ -107,9 +110,8 @@ std::string FormatSamples(const std::vector<std::uint64_t>& samples)
 
 } // namespace
 
-MetricsReporter::MetricsReporter(MetricsRegistry& metrics, std::chrono::seconds report_interval)
+MetricsReporter::MetricsReporter(MetricsRegistry& metrics)
     : metrics_(metrics)
-    , report_interval_(report_interval)
 {
 }
 
@@ -144,7 +146,7 @@ void MetricsReporter::Run(std::stop_token stop_token)
 
     while (!stop_token.stop_requested()) {
         auto lock = std::unique_lock<std::mutex>{mutex_};
-        wake_condition_.wait_for(lock, stop_token, report_interval_, [] {
+        wake_condition_.wait_for(lock, stop_token, kReportInterval, [] {
             return false;
         });
         lock.unlock();

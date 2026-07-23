@@ -6,6 +6,7 @@
 #include "rrs/synchronization/SnapshotQuantization.h"
 #include "rrs/synchronization/SnapshotUpdate.h"
 
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -17,7 +18,7 @@ class SnapshotDeltaTracker {
 public:
     [[nodiscard]] std::optional<SnapshotUpdate> BuildUpdate(
         PlayerId observer_player_id,
-        TickSeq tick_seq,
+        std::uint64_t tick_seq,
         const PlayerVisibilitySet& player_visibility,
         std::span<const PlayerEntity> players,
         std::optional<PlayerId> winner_player_id,

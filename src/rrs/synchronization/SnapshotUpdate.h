@@ -20,14 +20,14 @@ struct PlayerSnapshotUpdate {
 };
 
 struct FoodSnapshotUpdate {
-    FoodIndex food_index{0};
+    std::uint16_t food_index{0};
     QuantizedPosition position;
 
     friend bool operator==(const FoodSnapshotUpdate&, const FoodSnapshotUpdate&) = default;
 };
 
 struct SnapshotUpdate {
-    TickSeq tick_seq{0};
+    std::uint64_t tick_seq{0};
     bool full_reset{false};
     std::vector<PlayerSnapshotUpdate> player_updates;
     std::vector<PlayerId> removed_player_ids;

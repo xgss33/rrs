@@ -13,20 +13,18 @@ namespace rrs {
 
 namespace {
 
-constexpr std::size_t kLengthFieldSize = 4;
-constexpr std::size_t kMessageTypeSize = 1;
-constexpr std::size_t kJoinPayloadSize = 8;
-constexpr std::size_t kReconnectPayloadSize = 8;
-constexpr std::size_t kInputPayloadSize = 5;
-constexpr std::size_t kLeavePayloadSize = 0;
-constexpr std::size_t kSessionPrefixSize = 8;
-constexpr std::size_t kSnapshotFixedPayloadSize = 7;
-constexpr std::size_t kSnapshotPlayerFixedSize = 12;
-constexpr std::size_t kSnapshotBallSize = 6;
-constexpr std::size_t kSnapshotFoodSize = 6;
-constexpr std::uint32_t kMaxFrameLength = 64 * 1024;
-constexpr std::uint8_t kFullResetFlag = 1U << 0U;
-constexpr std::uint8_t kWinnerPresentFlag = 1U << 1U;
+constexpr std::size_t kLengthFieldSize = sizeof(std::uint32_t);
+constexpr std::size_t kMessageTypeSize = sizeof(std::uint8_t);
+constexpr std::size_t kInputPayloadSize = sizeof(std::int16_t) * 2 + sizeof(std::uint8_t);
+constexpr std::size_t kSnapshotFixedPayloadSize =
+    sizeof(std::uint16_t) + sizeof(std::uint8_t) * 3 + sizeof(std::uint16_t);
+constexpr std::size_t kSnapshotPlayerFixedSize =
+    sizeof(std::uint64_t) + sizeof(std::uint16_t) * 2;
+constexpr std::size_t kSnapshotBallSize = sizeof(std::int16_t) * 2 + sizeof(std::uint16_t);
+constexpr std::size_t kSnapshotFoodSize = sizeof(std::uint16_t) + sizeof(std::int16_t) * 2;
+constexpr std::uint32_t kMaxClientFrameLength =
+    kMessageTypeSize + sizeof(std::uint64_t);
+constexpr std::uint8_t kWinnerPresentFlag = 1U << 0U;
 
 void AppendU8(std::string& output, std::uint8_t value)
 {
@@ -86,7 +84,7 @@ std::int16_t ReadI16At(const std::string& input, std::size_t offset)
 
 bool IsFrameLengthValid(std::uint32_t length)
 {
-    return length >= kMessageTypeSize && length <= kMaxFrameLength;
+    return length >= kMessageTypeSize && length <= kMaxClientFrameLength;
 }
 
 } // namespace
@@ -118,7 +116,7 @@ BinaryFrameDecodeStatus TryDecodeBinaryFrame(std::string& buffer, BinaryFrame& o
 std::optional<PlayerId> DecodeJoinRequest(const BinaryFrame& frame)
 {
     if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kJoin)
-        || frame.payload.size() != kJoinPayloadSize) {
+        || frame.payload.size() != sizeof(std::uint64_t)) {
         return std::nullopt;
     }
 
@@ -128,7 +126,7 @@ std::optional<PlayerId> DecodeJoinRequest(const BinaryFrame& frame)
 std::optional<SessionId> DecodeReconnectRequest(const BinaryFrame& frame)
 {
     if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kReconnect)
-        || frame.payload.size() != kReconnectPayloadSize) {
+        || frame.payload.size() != sizeof(std::uint64_t)) {
         return std::nullopt;
     }
 
@@ -138,7 +136,9 @@ std::optional<SessionId> DecodeReconnectRequest(const BinaryFrame& frame)
 std::optional<PlayerInput> DecodeInputRequest(const BinaryFrame& frame)
 {
     if (frame.message_type != static_cast<std::uint8_t>(ClientMessageType::kInput)
-        || frame.payload.size() != kInputPayloadSize) {
+        || frame.payload.size() != kInputPayloadSize
+        || (static_cast<std::uint8_t>(static_cast<unsigned char>(frame.payload[4]))
+            & static_cast<std::uint8_t>(~PlayerInput::kSplitFlag)) != 0) {
         return std::nullopt;
     }
 
@@ -152,7 +152,7 @@ std::optional<PlayerInput> DecodeInputRequest(const BinaryFrame& frame)
 bool IsValidLeaveRequest(const BinaryFrame& frame)
 {
     return frame.message_type == static_cast<std::uint8_t>(ClientMessageType::kLeave)
-        && frame.payload.size() == kLeavePayloadSize;
+        && frame.payload.empty();
 }
 
 std::string EncodeFrame(ServerMessageType message_type, std::string_view payload)
@@ -166,10 +166,10 @@ std::string EncodeFrame(ServerMessageType message_type, std::string_view payload
     return output;
 }
 
-std::string EncodeSessionPayload(SessionId session_id, std::string_view snapshot_payload)
+std::string EncodeFullSnapshotPayload(SessionId session_id, std::string_view snapshot_payload)
 {
     std::string output;
-    output.reserve(kSessionPrefixSize + snapshot_payload.size());
+    output.reserve(sizeof(std::uint64_t) + snapshot_payload.size());
     AppendU64(output, session_id.value());
     output.append(snapshot_payload);
     return output;
@@ -193,9 +193,6 @@ std::string EncodeSnapshotPayload(
 
     AppendU16(output, static_cast<std::uint16_t>(update.tick_seq));
     auto flags = std::uint8_t{0};
-    if (update.full_reset) {
-        flags = static_cast<std::uint8_t>(flags | kFullResetFlag);
-    }
     if (update.winner_player_id) {
         flags = static_cast<std::uint8_t>(flags | kWinnerPresentFlag);
     }

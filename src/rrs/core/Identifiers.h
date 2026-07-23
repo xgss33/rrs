@@ -10,18 +10,15 @@ namespace rrs {
 template <typename Tag>
 class StrongId {
 public:
-    using ValueType = std::uint64_t;
-
     constexpr StrongId() = default;
-    explicit constexpr StrongId(ValueType value) : value_(value) {}
+    explicit constexpr StrongId(std::uint64_t value) : value_(value) {}
 
-    constexpr ValueType value() const { return value_; }
-    constexpr bool is_valid() const { return value_ != 0; }
+    constexpr std::uint64_t value() const { return value_; }
 
     friend constexpr auto operator<=>(const StrongId&, const StrongId&) = default;
 
 private:
-    ValueType value_{0};
+    std::uint64_t value_{0};
 };
 
 struct RoomIdTag;
@@ -37,7 +34,13 @@ using SessionId = StrongId<SessionIdTag>;
 using ConnectionId = StrongId<ConnectionIdTag>;
 using WorkerId = StrongId<WorkerIdTag>;
 using IoThreadId = StrongId<IoThreadIdTag>;
-using TickSeq = std::uint64_t;
+
+struct ConnectionHandle {
+    IoThreadId io_thread_id;
+    ConnectionId connection_id;
+
+    friend bool operator==(const ConnectionHandle&, const ConnectionHandle&) = default;
+};
 
 } // namespace rrs
 
@@ -47,7 +50,17 @@ template <typename Tag>
 struct hash<rrs::StrongId<Tag>> {
     std::size_t operator()(rrs::StrongId<Tag> id) const noexcept
     {
-        return std::hash<typename rrs::StrongId<Tag>::ValueType>{}(id.value());
+        return std::hash<std::uint64_t>{}(id.value());
+    }
+};
+
+template <>
+struct hash<rrs::ConnectionHandle> {
+    std::size_t operator()(const rrs::ConnectionHandle& connection) const noexcept
+    {
+        const auto io_hash = std::hash<rrs::IoThreadId>{}(connection.io_thread_id);
+        const auto connection_hash = std::hash<rrs::ConnectionId>{}(connection.connection_id);
+        return io_hash ^ (connection_hash + 0x9e3779b9U + (io_hash << 6U) + (io_hash >> 2U));
     }
 };
 

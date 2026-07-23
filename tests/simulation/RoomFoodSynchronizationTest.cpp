@@ -21,14 +21,11 @@ void Expect(bool condition, std::string_view message)
 
 void TestFullFoodBaselineUsesZeroBasedIndices()
 {
-    constexpr auto tick_interval = std::chrono::nanoseconds{33'333'333};
-    const auto first_tick_time = rrs::Room::Clock::now() + tick_interval;
-    auto room = rrs::Room{rrs::RoomId{1}, first_tick_time, tick_interval};
-    const auto session_id = rrs::SessionId{1};
+    const auto first_tick_time = rrs::Room::Clock::now() + rrs::room_rules::kTickInterval;
+    auto room = rrs::Room{rrs::RoomId{1}, first_tick_time};
     const auto player_id = rrs::PlayerId{1};
     room.EnqueueCommand(rrs::Room::Command{
         .type = rrs::Room::CommandType::kJoin,
-        .session_id = session_id,
         .player_id = player_id,
         .input = {},
         .entered_at = first_tick_time - std::chrono::nanoseconds{1},
@@ -53,7 +50,6 @@ void TestFullFoodBaselineUsesZeroBasedIndices()
 
     room.EnqueueCommand(rrs::Room::Command{
         .type = rrs::Room::CommandType::kPlayerInput,
-        .session_id = session_id,
         .player_id = player_id,
         .input = rrs::PlayerInput{.move_x = 32767, .move_y = 0, .input_flags = 0},
         .entered_at = room.next_tick_time() - std::chrono::nanoseconds{1},
@@ -79,19 +75,22 @@ void TestFullFoodBaselineUsesZeroBasedIndices()
 
 void TestMatchEndProducesFinalSnapshot()
 {
-    constexpr auto tick_interval = rrs::room_rules::kMatchDuration;
-    const auto first_tick_time = rrs::Room::Clock::now() + tick_interval;
-    auto room = rrs::Room{rrs::RoomId{2}, first_tick_time, tick_interval};
+    const auto first_tick_time = rrs::Room::Clock::now() + rrs::room_rules::kTickInterval;
+    auto room = rrs::Room{rrs::RoomId{2}, first_tick_time};
     const auto player_id = rrs::PlayerId{2};
     room.EnqueueCommand(rrs::Room::Command{
         .type = rrs::Room::CommandType::kJoin,
-        .session_id = rrs::SessionId{2},
         .player_id = player_id,
         .input = {},
         .entered_at = first_tick_time - std::chrono::nanoseconds{1},
     });
 
-    const auto result = room.Tick();
+    auto result = rrs::Room::TickResult{};
+    const auto match_tick_count =
+        rrs::room_rules::kMatchDuration / rrs::room_rules::kTickInterval;
+    for (auto tick = decltype(match_tick_count){0}; tick < match_tick_count; ++tick) {
+        result = room.Tick();
+    }
     Expect(result.match_ended, "room reports the match-ending tick once");
     const auto final_snapshot = room.BuildSnapshot(player_id, true, false);
     Expect(final_snapshot && final_snapshot->winner_player_id == player_id,

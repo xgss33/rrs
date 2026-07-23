@@ -1,20 +1,18 @@
 #include "rrs/network/IOThread.h"
 
 #include "rrs/core/Identifiers.h"
+#include "rrs/core/ThreadMessages.h"
 #include "rrs/core/Threading.h"
 #include "rrs/observability/Logger.h"
 #include "rrs/observability/MetricsRegistry.h"
 #include "rrs/protocol/BinaryProtocol.h"
-#include "rrs/runtime/ConnectionHandle.h"
-#include "rrs/runtime/SessionManager.h"
-#include "rrs/runtime/WorkerMessages.h"
+#include "rrs/runtime/WorkerManager.h"
 #include "rrs/simulation/PlayerInput.h"
 
 #include <array>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
-#include <memory>
 #include <stdexcept>
 #include <string>
 #include <sys/epoll.h>
@@ -28,6 +26,8 @@ namespace rrs {
 
 namespace {
 
+constexpr std::size_t kOutboundQueueLimit = 16;
+
 bool IsPeerDisconnectError(int error_number)
 {
     return error_number == ECONNRESET || error_number == EPIPE;
@@ -35,25 +35,23 @@ bool IsPeerDisconnectError(int error_number)
 
 } // namespace
 
-IOThread::IOThread(IoThreadId io_thread_id,
-                   std::vector<WorkerInboxSender> worker_inboxes,
-                   MetricsRegistry& metrics,
-                   std::size_t outbound_queue_limit)
+IoThread::IoThread(IoThreadId io_thread_id,
+                   std::vector<MailboxSender<WorkerMessage>> worker_inboxes,
+                   MetricsRegistry& metrics)
     : io_thread_id_(io_thread_id)
     , worker_inboxes_(std::move(worker_inboxes))
     , inbox_([this] { Wake(); })
-    , outbound_queue_limit_(outbound_queue_limit)
     , accepted_clients_([this] { Wake(); })
     , metrics_(metrics)
 {
 }
 
-IOThread::~IOThread()
+IoThread::~IoThread()
 {
     Stop();
 }
 
-void IOThread::Start()
+void IoThread::Start()
 {
     wake_event_fd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (wake_event_fd_ < 0) {
@@ -76,7 +74,7 @@ void IOThread::Start()
     thread_ = std::jthread([this](std::stop_token stop_token) { Run(stop_token); });
 }
 
-void IOThread::Stop()
+void IoThread::Stop()
 {
     if (thread_.joinable()) {
         thread_.request_stop();
@@ -94,16 +92,16 @@ void IOThread::Stop()
     }
 }
 
-void IOThread::Wake()
+void IoThread::Wake()
 {
     if (wake_event_fd_ < 0) {
         return;
     }
 
-    constexpr std::uint64_t kWakeValue = 1;
+    const auto wake_value = std::uint64_t{1};
     while (true) {
-        const auto bytes_written = ::write(wake_event_fd_, &kWakeValue, sizeof(kWakeValue));
-        if (bytes_written == sizeof(kWakeValue)) {
+        const auto bytes_written = ::write(wake_event_fd_, &wake_value, sizeof(wake_value));
+        if (bytes_written == sizeof(wake_value)) {
             return;
         }
         if (bytes_written < 0 && errno == EINTR) {
@@ -117,12 +115,12 @@ void IOThread::Wake()
     }
 }
 
-void IOThread::EnqueueAcceptedClient(int client_fd)
+void IoThread::EnqueueAcceptedClient(int client_fd)
 {
     accepted_clients_.Push(client_fd);
 }
 
-void IOThread::Run(std::stop_token stop_token)
+void IoThread::Run(std::stop_token stop_token)
 {
     SetCurrentThreadName("rrs-io-" + std::to_string(io_thread_id_.value()));
     while (!stop_token.stop_requested()) {
@@ -134,7 +132,7 @@ void IOThread::Run(std::stop_token stop_token)
                 continue;
             }
 
-            const auto connection_id = ConnectionId{next_connection_id_++};
+            const auto connection_id = ConnectionId{next_connection_sequence_++};
             epoll_event event{};
             event.events = EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
             event.data.u64 = connection_id.value();
@@ -147,7 +145,7 @@ void IOThread::Run(std::stop_token stop_token)
             clients_.emplace(connection_id, ClientConnection{
                                                 .fd = client_fd,
                                                 .state = ClientConnection::State::kAwaitingRequest,
-                                                .worker_id = std::nullopt,
+                                                .worker_id = WorkerId{0},
                                                 .read_buffer = {},
                                                 .outbound_queue = {},
                                                 .dirty = false,
@@ -163,24 +161,24 @@ void IOThread::Run(std::stop_token stop_token)
                 continue;
             }
             auto& client = iterator->second;
-            if (message.activate_connection) {
+            if (message.action == ConnectionAction::kActivate) {
                 if (client.state != ClientConnection::State::kPending) {
                     continue;
                 }
                 client.state = ClientConnection::State::kActive;
             }
-            if (message.close_after_send) {
+            if (message.action == ConnectionAction::kClose) {
                 client.state = ClientConnection::State::kClosing;
             }
-            const auto has_frame = message.encoded_frame != nullptr;
+            const auto has_frame = !message.frame.empty();
             if (has_frame
-                && !QueueEncodedFrame(message.connection.connection_id, client, std::move(message.encoded_frame))) {
+                && !QueueEncodedFrame(message.connection.connection_id, client, std::move(message.frame))) {
                 Logger::Warn("[IO] close slow client connection={} outbound_queue_limit={}",
-                             message.connection.connection_id.value(), outbound_queue_limit_);
+                             message.connection.connection_id.value(), kOutboundQueueLimit);
                 CloseClient(message.connection.connection_id);
                 continue;
             }
-            if (!has_frame && message.close_after_send) {
+            if (!has_frame && message.action == ConnectionAction::kClose) {
                 CloseClient(message.connection.connection_id);
             }
         }
@@ -257,7 +255,7 @@ void IOThread::Run(std::stop_token stop_token)
     Logger::Info("[IO] TCP IO thread stopped id={}", io_thread_id_.value());
 }
 
-void IOThread::SetClientWriteInterest(ConnectionId connection_id, ClientConnection& client, bool enabled)
+void IoThread::SetClientWriteInterest(ConnectionId connection_id, ClientConnection& client, bool enabled)
 {
     if (client.wants_write == enabled || epoll_fd_ < 0) {
         return;
@@ -277,7 +275,7 @@ void IOThread::SetClientWriteInterest(ConnectionId connection_id, ClientConnecti
     client.wants_write = enabled;
 }
 
-void IOThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t events)
+void IoThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t events)
 {
     auto iterator = clients_.find(connection_id);
     if (iterator == clients_.end()) {
@@ -356,7 +354,7 @@ void IOThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t event
         switch (static_cast<ClientMessageType>(frame.message_type)) {
         case ClientMessageType::kJoin: {
             const auto request = DecodeJoinRequest(frame);
-            if (!request || !request->is_valid()) {
+            if (!request || request->value() == 0) {
                 QueueErrorFrame(connection_id, client, "JOIN_USAGE");
                 break;
             }
@@ -368,15 +366,15 @@ void IOThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t event
             const auto worker_id = WorkerId{(request->value() - 1) % worker_inboxes_.size()};
             client.worker_id = worker_id;
             client.state = ClientConnection::State::kPending;
-            (void)worker_inboxes_[static_cast<std::size_t>(worker_id.value())].Push(
-                JoinMessage{ConnectionHandle{io_thread_id_, connection_id}, *request});
+            worker_inboxes_[static_cast<std::size_t>(worker_id.value())].Push(
+                WorkerMessage{.connection = ConnectionHandle{io_thread_id_, connection_id}, .payload = *request});
             Logger::Info("[IO] join requested connection={} player={} worker={}",
                          connection_id.value(), request->value(), worker_id.value());
             break;
         }
         case ClientMessageType::kReconnect: {
             const auto request = DecodeReconnectRequest(frame);
-            if (!request || !request->is_valid()) {
+            if (!request || request->value() == 0) {
                 QueueErrorFrame(connection_id, client, "RECONNECT_USAGE");
                 break;
             }
@@ -388,8 +386,8 @@ void IOThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t event
             const auto worker_id = GetSessionWorker(*request, worker_inboxes_.size());
             client.worker_id = worker_id;
             client.state = ClientConnection::State::kPending;
-            (void)worker_inboxes_[static_cast<std::size_t>(worker_id.value())].Push(
-                ReconnectMessage{ConnectionHandle{io_thread_id_, connection_id}, *request});
+            worker_inboxes_[static_cast<std::size_t>(worker_id.value())].Push(
+                WorkerMessage{.connection = ConnectionHandle{io_thread_id_, connection_id}, .payload = *request});
             Logger::Info("[IO] reconnect requested connection={} session={} worker={}",
                          connection_id.value(), request->value(), worker_id.value());
             break;
@@ -405,8 +403,8 @@ void IOThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t event
                 break;
             }
 
-            (void)worker_inboxes_[static_cast<std::size_t>(client.worker_id->value())].Push(
-                InputMessage{ConnectionHandle{io_thread_id_, connection_id}, *request});
+            worker_inboxes_[static_cast<std::size_t>(client.worker_id.value())].Push(
+                WorkerMessage{.connection = ConnectionHandle{io_thread_id_, connection_id}, .payload = *request});
             break;
         }
         case ClientMessageType::kLeave:
@@ -419,10 +417,10 @@ void IOThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t event
                 break;
             }
 
-            (void)worker_inboxes_[static_cast<std::size_t>(client.worker_id->value())].Push(
-                ConnectionMessage{
+            worker_inboxes_[static_cast<std::size_t>(client.worker_id.value())].Push(
+                WorkerMessage{
                     .connection = ConnectionHandle{io_thread_id_, connection_id},
-                    .action = ConnectionAction::kLeave,
+                    .payload = ConnectionEvent::kLeave,
                 });
             client.state = ClientConnection::State::kClosing;
             break;
@@ -455,7 +453,7 @@ void IOThread::HandleSocketEvent(ConnectionId connection_id, std::uint32_t event
     }
 }
 
-bool IOThread::FlushClientOutbound(ConnectionId connection_id, ClientConnection& client)
+bool IoThread::FlushClientOutbound(ConnectionId connection_id, ClientConnection& client)
 {
     const auto queue_depth = client.outbound_queue.size();
     if (queue_depth > 0) {
@@ -464,7 +462,7 @@ bool IOThread::FlushClientOutbound(ConnectionId connection_id, ClientConnection&
     }
     while (!client.outbound_queue.empty()) {
         auto& pending_write = client.outbound_queue.front();
-        const auto& frame = *pending_write.encoded_frame;
+        const auto& frame = pending_write.frame;
         ++pending_send_metrics_.send_calls;
         const auto bytes_sent = ::send(client.fd,
                                        frame.data() + pending_write.offset,
@@ -496,7 +494,7 @@ bool IOThread::FlushClientOutbound(ConnectionId connection_id, ClientConnection&
     return true;
 }
 
-void IOThread::CloseClient(ConnectionId connection_id)
+void IoThread::CloseClient(ConnectionId connection_id)
 {
     auto iterator = clients_.find(connection_id);
     if (iterator == clients_.end()) {
@@ -513,27 +511,27 @@ void IOThread::CloseClient(ConnectionId connection_id)
     metrics_.OnConnectionClosed();
 }
 
-void IOThread::NotifyDisconnect(ConnectionId connection_id, ClientConnection& client)
+void IoThread::NotifyDisconnect(ConnectionId connection_id, ClientConnection& client)
 {
     if ((client.state != ClientConnection::State::kPending
          && client.state != ClientConnection::State::kActive)) {
         return;
     }
-    (void)worker_inboxes_[static_cast<std::size_t>(client.worker_id->value())].Push(
-        ConnectionMessage{
+    worker_inboxes_[static_cast<std::size_t>(client.worker_id.value())].Push(
+        WorkerMessage{
             .connection = ConnectionHandle{io_thread_id_, connection_id},
-            .action = ConnectionAction::kDisconnected,
+            .payload = ConnectionEvent::kDisconnected,
         });
 }
 
-bool IOThread::QueueEncodedFrame(ConnectionId connection_id,
+bool IoThread::QueueEncodedFrame(ConnectionId connection_id,
                                  ClientConnection& client,
-                                 std::shared_ptr<const std::string> encoded_frame)
+                                 std::string frame)
 {
-    if (client.outbound_queue.size() >= outbound_queue_limit_) {
+    if (client.outbound_queue.size() >= kOutboundQueueLimit) {
         return false;
     }
-    client.outbound_queue.push_back(PendingWrite{.encoded_frame = std::move(encoded_frame), .offset = 0});
+    client.outbound_queue.push_back(PendingWrite{.frame = std::move(frame), .offset = 0});
     if (!client.dirty) {
         client.dirty = true;
         dirty_clients_.push_back(connection_id);
@@ -541,14 +539,13 @@ bool IOThread::QueueEncodedFrame(ConnectionId connection_id,
     return true;
 }
 
-void IOThread::QueueErrorFrame(ConnectionId connection_id, ClientConnection& client, const std::string& message)
+void IoThread::QueueErrorFrame(ConnectionId connection_id, ClientConnection& client, const std::string& message)
 {
     NotifyDisconnect(connection_id, client);
-    client.worker_id.reset();
     client.state = ClientConnection::State::kClosing;
     if (!QueueEncodedFrame(connection_id,
                            client,
-                           std::make_shared<const std::string>(EncodeFrame(ServerMessageType::kError, message)))) {
+                           EncodeFrame(ServerMessageType::kError, message))) {
         CloseClient(connection_id);
     }
 }

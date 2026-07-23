@@ -22,10 +22,9 @@ enum class ClientMessageType : std::uint8_t {
 };
 
 enum class ServerMessageType : std::uint8_t {
-    kJoinOk = 101,
-    kReconnectOk = 102,
-    kSnapshot = 103,
-    kError = 104,
+    kFullSnapshot = 101,
+    kDeltaSnapshot = 102,
+    kError = 103,
 };
 
 struct BinaryFrame {
@@ -47,7 +46,7 @@ enum class BinaryFrameDecodeStatus {
 [[nodiscard]] bool IsValidLeaveRequest(const BinaryFrame& frame);
 
 [[nodiscard]] std::string EncodeFrame(ServerMessageType message_type, std::string_view payload);
-[[nodiscard]] std::string EncodeSessionPayload(SessionId session_id, std::string_view snapshot_payload);
+[[nodiscard]] std::string EncodeFullSnapshotPayload(SessionId session_id, std::string_view snapshot_payload);
 [[nodiscard]] std::string EncodeSnapshotPayload(
     const SnapshotUpdate& update,
     std::span<const FoodSnapshotUpdate> food_updates);

@@ -42,7 +42,7 @@ bool IsBallActive(const PlayerEntity& player, std::size_t ball_index)
 FoodSnapshotUpdate MakeFoodSnapshotUpdate(std::size_t food_index, const FoodEntity& food)
 {
     return FoodSnapshotUpdate{
-        .food_index = static_cast<FoodIndex>(food_index),
+        .food_index = static_cast<std::uint16_t>(food_index),
         .position = QuantizeSnapshotPosition(food.position),
     };
 }
@@ -85,20 +85,13 @@ void Room::ClampBallPosition(PlayerBall& ball)
         room_rules::kRoomHalfExtent - ball.radius);
 }
 
-Room::Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanoseconds tick_interval)
+Room::Room(RoomId room_id, Clock::time_point first_tick_time)
     : room_id_(room_id)
     , next_tick_time_(first_tick_time)
-    , tick_interval_(tick_interval)
     , rng_(static_cast<std::mt19937::result_type>(room_id.value() * 2654435761ULL))
     , food_spatial_index_(MakeRoomGridLayout())
     , player_ball_spatial_index_(MakeRoomGridLayout())
 {
-    const auto tick_interval_ns = tick_interval_.count();
-    const auto respawn_delay_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(room_rules::kRespawnDelay).count();
-    const auto match_duration_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(room_rules::kMatchDuration).count();
-
-    respawn_delay_ticks_ = static_cast<TickSeq>(std::max<std::int64_t>(1, respawn_delay_ns / tick_interval_ns));
-    match_duration_ticks_ = static_cast<TickSeq>(std::max<std::int64_t>(1, match_duration_ns / tick_interval_ns));
     InitializeFoods();
     food_spatial_index_.Initialize(foods_);
 }
@@ -130,7 +123,7 @@ Room::TickResult Room::Tick()
 
     result.match_ended = !was_match_over && match_over_;
 
-    next_tick_time_ += tick_interval_;
+    next_tick_time_ += room_rules::kTickInterval;
     return result;
 }
 
@@ -185,7 +178,7 @@ std::vector<Room::AggregatedPlayerInput> Room::ProcessCommands(const std::vector
     for (const auto& command : commands) {
         switch (command.type) {
         case CommandType::kJoin:
-            JoinPlayer(command.session_id, command.player_id, result);
+            JoinPlayer(command.player_id, result);
             break;
         case CommandType::kPlayerInput: {
             const auto iterator = std::find_if(
@@ -207,7 +200,7 @@ std::vector<Room::AggregatedPlayerInput> Room::ProcessCommands(const std::vector
             break;
         }
         case CommandType::kLeave:
-            LeavePlayer(command.session_id, command.player_id, result);
+            LeavePlayer(command.player_id);
             break;
         }
     }
@@ -215,7 +208,7 @@ std::vector<Room::AggregatedPlayerInput> Room::ProcessCommands(const std::vector
     return player_inputs;
 }
 
-void Room::JoinPlayer(SessionId session_id, PlayerId player_id, TickResult& result)
+void Room::JoinPlayer(PlayerId player_id, TickResult& result)
 {
     if (FindPlayer(player_id) == nullptr) {
         auto player = PlayerEntity{
@@ -232,11 +225,7 @@ void Room::JoinPlayer(SessionId session_id, PlayerId player_id, TickResult& resu
         players_.push_back(player);
     }
 
-    result.events.push_back(Event{
-        .type = EventType::kJoinAccepted,
-        .session_id = session_id,
-        .player_id = player_id,
-    });
+    result.joined_players.push_back(player_id);
 }
 
 void Room::ApplyMovementInputs(const std::vector<AggregatedPlayerInput>& inputs)
@@ -254,22 +243,13 @@ void Room::ApplyMovementInputs(const std::vector<AggregatedPlayerInput>& inputs)
     }
 }
 
-void Room::LeavePlayer(SessionId session_id, PlayerId player_id, TickResult& result)
+void Room::LeavePlayer(PlayerId player_id)
 {
-    std::erase_if(pending_commands_, [session_id](const Command& command) {
-        return command.session_id == session_id;
-    });
     std::erase_if(players_, [player_id](const PlayerEntity& player) {
         return player.player_id == player_id;
     });
     player_visibility_tracker_.RemoveObserver(player_id);
     snapshot_delta_tracker_.RemoveObserver(player_id);
-
-    result.events.push_back(Event{
-        .type = EventType::kPlayerLeft,
-        .session_id = session_id,
-        .player_id = player_id,
-    });
 }
 
 void Room::ApplySplitInputs(const std::vector<AggregatedPlayerInput>& inputs)
@@ -291,7 +271,7 @@ void Room::SplitPlayer(PlayerEntity& player)
     const auto source_mask = player.active_ball_mask;
     auto free_mask = static_cast<std::uint16_t>(~player.active_ball_mask);
     auto split_direction = NormalizeOrZero(player.input_direction);
-    if (LengthSquared(split_direction) <= 0.0001F) {
+    if (split_direction.x == 0.0F && split_direction.y == 0.0F) {
         split_direction = Vector2{.x = 1.0F, .y = 0.0F};
     }
 
@@ -375,14 +355,14 @@ void Room::ResolveFoodEating(std::vector<FoodSnapshotUpdate>& food_updates)
             .y = food_position_distribution(rng_),
         };
         foods_[food_index].position = new_position;
-        food_spatial_index_.Relocate(static_cast<FoodIndex>(food_index), new_position);
+        food_spatial_index_.Relocate(static_cast<std::uint32_t>(food_index), new_position);
         food_updates.push_back(MakeFoodSnapshotUpdate(food_index, foods_[food_index]));
     }
 }
 
 void Room::MovePlayerBalls()
 {
-    const auto delta_seconds = static_cast<float>(tick_interval_.count()) / 1'000'000'000.0F;
+    const auto delta_seconds = std::chrono::duration<float>{room_rules::kTickInterval}.count();
     for (auto& player : players_) {
         for (std::size_t ball_index = 0; ball_index < kMaxBallsPerPlayer; ++ball_index) {
             if (!IsBallActive(player, ball_index)) {
@@ -474,7 +454,8 @@ bool Room::TryEatPlayerBall(PlayerEntity& attacker,
         victim.active_ball_mask & static_cast<std::uint16_t>(~BallMask(victim_ball_index)));
     if (!IsAlive(victim)) {
         victim.input_direction = {};
-        victim.respawn_tick = tick_seq_ + respawn_delay_ticks_;
+        victim.respawn_tick = tick_seq_
+            + static_cast<std::uint64_t>(room_rules::kRespawnDelay / room_rules::kTickInterval);
     }
     return true;
 }
@@ -498,7 +479,9 @@ void Room::RespawnDuePlayers()
 
 void Room::UpdateMatchState()
 {
-    if (match_over_ || tick_seq_ < match_duration_ticks_) {
+    if (match_over_
+        || tick_seq_ < static_cast<std::uint64_t>(
+            room_rules::kMatchDuration / room_rules::kTickInterval)) {
         return;
     }
 

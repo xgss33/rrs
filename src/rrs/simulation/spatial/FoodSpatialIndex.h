@@ -15,7 +15,7 @@ public:
     explicit FoodSpatialIndex(UniformGridLayout layout);
 
     void Initialize(std::span<const FoodEntity> foods);
-    void Relocate(FoodIndex food_index, Vector2 position);
+    void Relocate(std::uint32_t food_index, Vector2 position);
     [[nodiscard]] std::span<const std::uint32_t> QueryCandidates(Vector2 center, float search_radius);
 
 private:

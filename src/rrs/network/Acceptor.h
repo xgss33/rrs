@@ -8,11 +8,11 @@
 
 namespace rrs {
 
-class IOThread;
+class IoThread;
 
 class Acceptor {
 public:
-    Acceptor(std::uint16_t port, const std::vector<std::unique_ptr<IOThread>>& io_threads);
+    Acceptor(std::uint16_t port, const std::vector<std::unique_ptr<IoThread>>& io_threads);
     ~Acceptor();
 
     Acceptor(const Acceptor&) = delete;
@@ -25,11 +25,11 @@ public:
 
 private:
     void Run(std::stop_token stop_token);
-    [[nodiscard]] IOThread& SelectIoThread();
+    [[nodiscard]] IoThread& SelectIoThread();
     [[nodiscard]] int CreateListenSocket() const;
 
     std::uint16_t port_;
-    const std::vector<std::unique_ptr<IOThread>>& io_threads_;
+    const std::vector<std::unique_ptr<IoThread>>& io_threads_;
     std::size_t next_io_thread_index_{0};
     int listen_fd_{-1};
     std::jthread thread_;

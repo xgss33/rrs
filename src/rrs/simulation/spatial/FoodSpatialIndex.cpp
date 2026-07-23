@@ -25,9 +25,9 @@ void FoodSpatialIndex::Initialize(std::span<const FoodEntity> foods)
     grid_.Rebuild(food_positions);
 }
 
-void FoodSpatialIndex::Relocate(FoodIndex food_index, Vector2 position)
+void FoodSpatialIndex::Relocate(std::uint32_t food_index, Vector2 position)
 {
-    grid_.Relocate(static_cast<std::uint32_t>(food_index), position);
+    grid_.Relocate(food_index, position);
 }
 
 std::span<const std::uint32_t> FoodSpatialIndex::QueryCandidates(Vector2 center, float search_radius)

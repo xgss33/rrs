@@ -36,7 +36,7 @@ bool HasPayloadChanges(const SnapshotUpdate& update)
 
 std::optional<SnapshotUpdate> SnapshotDeltaTracker::BuildUpdate(
     PlayerId observer_player_id,
-    TickSeq tick_seq,
+    std::uint64_t tick_seq,
     const PlayerVisibilitySet& player_visibility,
     std::span<const PlayerEntity> players,
     std::optional<PlayerId> winner_player_id,

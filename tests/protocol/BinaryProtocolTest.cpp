@@ -73,6 +73,8 @@ void TestRequestPayloadSizes()
            "INPUT payload remains 5 bytes and big-endian");
     input.payload.pop_back();
     Expect(!rrs::DecodeInputRequest(input), "INPUT rejects non-5-byte payload");
+    input.payload = std::string{"\0\0\0\0\x02", 5};
+    Expect(!rrs::DecodeInputRequest(input), "INPUT rejects reserved flags");
 
     const auto leave = rrs::BinaryFrame{
         .message_type = static_cast<std::uint8_t>(rrs::ClientMessageType::kLeave),
@@ -83,13 +85,13 @@ void TestRequestPayloadSizes()
 
 void TestSessionPrefix()
 {
-    const auto payload = rrs::EncodeSessionPayload(
+    const auto payload = rrs::EncodeFullSnapshotPayload(
         rrs::SessionId{0x0102030405060708ULL},
         "snapshot");
     auto expected = std::string{};
     AppendU64(expected, 0x0102030405060708ULL);
     expected += "snapshot";
-    Expect(payload == expected, "JOIN_OK and RECONNECT_OK use the 8-byte session prefix");
+    Expect(payload == expected, "FULL_SNAPSHOT uses the 8-byte session prefix");
 }
 
 void TestSnapshotByteLayout()
@@ -121,7 +123,7 @@ void TestSnapshotByteLayout()
 
     auto expected = std::string{};
     AppendU16(expected, 0x1234);
-    AppendU8(expected, 3);
+    AppendU8(expected, 1);
     AppendU8(expected, 1);
     AppendU64(expected, 0x0102030405060708ULL);
     AppendU16(expected, 3);
@@ -142,9 +144,18 @@ void TestSnapshotByteLayout()
 
 void TestFrameLayout()
 {
-    const auto frame = rrs::EncodeFrame(rrs::ServerMessageType::kSnapshot, "abc");
-    const auto expected = std::string{"\0\0\0\4\x67" "abc", 8};
+    const auto frame = rrs::EncodeFrame(rrs::ServerMessageType::kDeltaSnapshot, "abc");
+    const auto expected = std::string{"\0\0\0\4\x66" "abc", 8};
     Expect(frame == expected, "outer binary frame layout remains unchanged");
+}
+
+void TestClientFrameLengthLimit()
+{
+    auto buffer = std::string{"\0\0\0\x0A", 4};
+    buffer.append(10, '\0');
+    auto frame = rrs::BinaryFrame{};
+    Expect(rrs::TryDecodeBinaryFrame(buffer, frame) == rrs::BinaryFrameDecodeStatus::kInvalid,
+           "client frames larger than JOIN are rejected");
 }
 
 } // namespace
@@ -155,6 +166,7 @@ int main()
     TestSessionPrefix();
     TestSnapshotByteLayout();
     TestFrameLayout();
+    TestClientFrameLengthLimit();
     std::cout << "BinaryProtocol tests passed\n";
     return EXIT_SUCCESS;
 }

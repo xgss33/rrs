@@ -19,7 +19,7 @@ struct PlayerBall {
 struct PlayerEntity {
     PlayerId player_id;
     Vector2 input_direction;
-    TickSeq respawn_tick{0};
+    std::uint64_t respawn_tick{0};
     std::uint16_t active_ball_mask{0};
     std::array<PlayerBall, kMaxBallsPerPlayer> balls{};
 };

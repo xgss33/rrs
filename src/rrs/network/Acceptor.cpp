@@ -14,7 +14,7 @@
 
 namespace rrs {
 
-Acceptor::Acceptor(std::uint16_t port, const std::vector<std::unique_ptr<IOThread>>& io_threads)
+Acceptor::Acceptor(std::uint16_t port, const std::vector<std::unique_ptr<IoThread>>& io_threads)
     : port_(port)
     , io_threads_(io_threads)
 {
@@ -75,7 +75,7 @@ void Acceptor::Run(std::stop_token stop_token)
     Logger::Info("[Acceptor] stopped");
 }
 
-IOThread& Acceptor::SelectIoThread()
+IoThread& Acceptor::SelectIoThread()
 {
     auto& io_thread = *io_threads_[next_io_thread_index_];
     next_io_thread_index_ = (next_io_thread_index_ + 1) % io_threads_.size();

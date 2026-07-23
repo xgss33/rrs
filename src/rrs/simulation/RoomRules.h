@@ -5,6 +5,8 @@
 
 namespace rrs::room_rules {
 inline constexpr float kRoomHalfExtent = 1024.0F;
+inline constexpr std::size_t kRoomCapacity = 16;
+inline constexpr std::chrono::nanoseconds kTickInterval{33'333'333};
 
 inline constexpr float kSpatialGridCellSize = 64.0F;
 inline constexpr float kAoiEnterDistance = 384.0F;

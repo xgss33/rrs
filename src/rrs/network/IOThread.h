@@ -1,15 +1,13 @@
 #pragma once
 
 #include "rrs/core/Identifiers.h"
+#include "rrs/core/Mailbox.h"
+#include "rrs/core/ThreadMessages.h"
 #include "rrs/observability/MetricsRegistry.h"
-#include "rrs/runtime/Mailbox.h"
-#include "rrs/runtime/WorkerMessages.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <memory>
-#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -17,29 +15,28 @@
 
 namespace rrs {
 
-class IOThread {
+class IoThread {
 public:
-    IOThread(IoThreadId io_thread_id,
-             std::vector<WorkerInboxSender> worker_inboxes,
-             MetricsRegistry& metrics,
-             std::size_t outbound_queue_limit);
-    ~IOThread();
+    IoThread(IoThreadId io_thread_id,
+             std::vector<MailboxSender<WorkerMessage>> worker_inboxes,
+             MetricsRegistry& metrics);
+    ~IoThread();
 
-    IOThread(const IOThread&) = delete;
-    IOThread& operator=(const IOThread&) = delete;
-    IOThread(IOThread&&) = delete;
-    IOThread& operator=(IOThread&&) = delete;
+    IoThread(const IoThread&) = delete;
+    IoThread& operator=(const IoThread&) = delete;
+    IoThread(IoThread&&) = delete;
+    IoThread& operator=(IoThread&&) = delete;
 
     void Start();
     void Stop();
     void EnqueueAcceptedClient(int client_fd);
 
     IoThreadId id() const { return io_thread_id_; }
-    IoInboxSender inbox_sender() { return IoInboxSender{inbox_}; }
+    MailboxSender<IoMessage> inbox_sender() { return MailboxSender<IoMessage>{inbox_}; }
 
 private:
     struct PendingWrite {
-        std::shared_ptr<const std::string> encoded_frame;
+        std::string frame;
         std::size_t offset{0};
     };
 
@@ -51,7 +48,7 @@ private:
             kActive,
             kClosing,
         } state{State::kAwaitingRequest};
-        std::optional<WorkerId> worker_id;
+        WorkerId worker_id;
         std::string read_buffer;
         std::deque<PendingWrite> outbound_queue;
         bool dirty{false};
@@ -68,19 +65,18 @@ private:
     [[nodiscard]] bool QueueEncodedFrame(
         ConnectionId connection_id,
         ClientConnection& client,
-        std::shared_ptr<const std::string> encoded_frame);
+        std::string frame);
     void QueueErrorFrame(ConnectionId connection_id, ClientConnection& client, const std::string& message);
 
     IoThreadId io_thread_id_;
-    std::vector<WorkerInboxSender> worker_inboxes_;
-    IoInbox inbox_;
-    std::size_t outbound_queue_limit_;
+    std::vector<MailboxSender<WorkerMessage>> worker_inboxes_;
+    Mailbox<IoMessage> inbox_;
     std::vector<ConnectionId> dirty_clients_;
     int epoll_fd_{-1};
     int wake_event_fd_{-1};
     Mailbox<int> accepted_clients_;
     std::unordered_map<ConnectionId, ClientConnection> clients_;
-    ConnectionId::ValueType next_connection_id_{1};
+    std::uint64_t next_connection_sequence_{1};
     std::jthread thread_;
 
 private:

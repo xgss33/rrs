@@ -24,7 +24,7 @@ class Room {
 public:
     using Clock = std::chrono::steady_clock;
 
-    Room(RoomId room_id, Clock::time_point first_tick_time, std::chrono::nanoseconds tick_interval);
+    Room(RoomId room_id, Clock::time_point first_tick_time);
 
     RoomId id() const { return room_id_; }
     Clock::time_point next_tick_time() const { return next_tick_time_; }
@@ -39,26 +39,14 @@ public:
 
     struct Command {
         CommandType type{CommandType::kPlayerInput};
-        SessionId session_id;
         PlayerId player_id;
         PlayerInput input;
         Clock::time_point entered_at;
     };
 
-    enum class EventType {
-        kJoinAccepted,
-        kPlayerLeft,
-    };
-
-    struct Event {
-        EventType type{EventType::kJoinAccepted};
-        SessionId session_id;
-        PlayerId player_id;
-    };
-
     struct TickResult {
         std::vector<FoodSnapshotUpdate> food_updates;
-        std::vector<Event> events;
+        std::vector<PlayerId> joined_players;
         bool match_ended{false};
     };
 
@@ -83,9 +71,9 @@ private:
 
     [[nodiscard]] std::vector<Command> TakeCommandsForTick(Clock::time_point tick_start);
     [[nodiscard]] std::vector<AggregatedPlayerInput> ProcessCommands(const std::vector<Command>& commands, TickResult& result);
-    void JoinPlayer(SessionId session_id, PlayerId player_id, TickResult& result);
+    void JoinPlayer(PlayerId player_id, TickResult& result);
     void ApplyMovementInputs(const std::vector<AggregatedPlayerInput>& inputs);
-    void LeavePlayer(SessionId session_id, PlayerId player_id, TickResult& result);
+    void LeavePlayer(PlayerId player_id);
 
     void ApplySplitInputs(const std::vector<AggregatedPlayerInput>& inputs);
     void SplitPlayer(PlayerEntity& player);
@@ -103,11 +91,8 @@ private:
     PlayerEntity* FindPlayer(PlayerId player_id);
 
     RoomId room_id_;
-    TickSeq tick_seq_{0};
+    std::uint64_t tick_seq_{0};
     Clock::time_point next_tick_time_;
-    std::chrono::nanoseconds tick_interval_;
-    TickSeq match_duration_ticks_{0};
-    TickSeq respawn_delay_ticks_{0};
     bool match_over_{false};
     PlayerId winner_player_id_;
     std::mt19937 rng_;

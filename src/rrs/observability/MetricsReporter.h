@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -11,7 +10,7 @@ class MetricsRegistry;
 
 class MetricsReporter {
 public:
-    MetricsReporter(MetricsRegistry& metrics, std::chrono::seconds report_interval);
+    explicit MetricsReporter(MetricsRegistry& metrics);
     ~MetricsReporter();
 
     MetricsReporter(const MetricsReporter&) = delete;
@@ -26,7 +25,6 @@ private:
     void Run(std::stop_token stop_token);
 
     MetricsRegistry& metrics_;
-    std::chrono::seconds report_interval_;
     std::mutex mutex_;
     std::condition_variable_any wake_condition_;
     std::jthread thread_;

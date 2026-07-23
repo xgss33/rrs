@@ -31,8 +31,7 @@ add_executable(rrs
     src/rrs/observability/MetricsRegistry.cpp
     src/rrs/observability/MetricsReporter.cpp
     src/rrs/protocol/BinaryProtocol.cpp
-    src/rrs/runtime/SessionManager.cpp
-    src/rrs/runtime/RoomManager.cpp
+    src/rrs/runtime/WorkerManager.cpp
     src/rrs/runtime/WorkerThread.cpp
     src/rrs/simulation/PlayerVisibilityTracker.cpp
     src/rrs/simulation/spatial/FoodSpatialIndex.cpp
@@ -154,18 +153,25 @@ if (BUILD_TESTING)
 
     add_test(NAME BinaryProtocolTest COMMAND BinaryProtocolTest)
 
-    add_executable(SessionManagerTest
-        tests/runtime/SessionManagerTest.cpp
-        src/rrs/runtime/SessionManager.cpp
+    add_executable(WorkerManagerTest
+        tests/runtime/WorkerManagerTest.cpp
+        src/rrs/runtime/WorkerManager.cpp
+        src/rrs/simulation/Room.cpp
+        src/rrs/simulation/PlayerVisibilityTracker.cpp
+        src/rrs/simulation/spatial/FoodSpatialIndex.cpp
+        src/rrs/simulation/spatial/PlayerBallSpatialIndex.cpp
+        src/rrs/synchronization/SnapshotDeltaTracker.cpp
+        src/rrs/synchronization/SnapshotQuantization.cpp
     )
 
-    target_include_directories(SessionManagerTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_include_directories(WorkerManagerTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(WorkerManagerTest PRIVATE rrs_spatial)
 
     if (MSVC)
-        target_compile_options(SessionManagerTest PRIVATE /W4)
+        target_compile_options(WorkerManagerTest PRIVATE /W4)
     else()
-        target_compile_options(SessionManagerTest PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(WorkerManagerTest PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
-    add_test(NAME SessionManagerTest COMMAND SessionManagerTest)
+    add_test(NAME WorkerManagerTest COMMAND WorkerManagerTest)
 endif()

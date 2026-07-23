@@ -24,10 +24,11 @@ std::int16_t QuantizePositionComponent(float value)
 
 std::uint16_t QuantizeRadius(float value)
 {
-    constexpr float kMaximumRadius = 1024.0F;
-    const auto clamped = std::clamp(value, 0.0F, kMaximumRadius);
+    const auto clamped = std::clamp(value, 0.0F, room_rules::kRoomHalfExtent);
     return static_cast<std::uint16_t>(
-        std::lround(clamped / kMaximumRadius * static_cast<float>(std::numeric_limits<std::uint16_t>::max())));
+        std::lround(
+            clamped / room_rules::kRoomHalfExtent
+            * static_cast<float>(std::numeric_limits<std::uint16_t>::max())));
 }
 
 } // namespace

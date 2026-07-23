@@ -79,27 +79,16 @@ private:
 template <typename T>
 class MailboxSender {
 public:
-    MailboxSender() = default;
     explicit MailboxSender(Mailbox<T>& mailbox) : mailbox_(&mailbox) {}
 
-    [[nodiscard]] bool Push(T message) const
+    void Push(T message) const
     {
-        if (mailbox_ == nullptr) {
-            return false;
-        }
-
         mailbox_->Push(std::move(message));
-        return true;
     }
 
-    [[nodiscard]] bool PushBatch(std::vector<T>&& messages) const
+    void PushBatch(std::vector<T>&& messages) const
     {
-        if (mailbox_ == nullptr) {
-            return false;
-        }
-
         mailbox_->PushBatch(std::move(messages));
-        return true;
     }
 
 private:

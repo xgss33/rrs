@@ -1,38 +1,31 @@
 #include "rrs/runtime/WorkerThread.h"
 
 #include "rrs/core/Identifiers.h"
+#include "rrs/core/ThreadMessages.h"
 #include "rrs/core/Threading.h"
 #include "rrs/observability/Logger.h"
 #include "rrs/observability/MetricsRegistry.h"
 #include "rrs/protocol/BinaryProtocol.h"
-#include "rrs/runtime/ConnectionHandle.h"
-#include "rrs/runtime/RoomManager.h"
-#include "rrs/runtime/Session.h"
-#include "rrs/runtime/SessionManager.h"
-#include "rrs/runtime/WorkerMessages.h"
+#include "rrs/runtime/WorkerManager.h"
 #include "rrs/simulation/Room.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
-#include <memory>
 #include <optional>
+#include <span>
 #include <thread>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace rrs {
 
 WorkerThread::WorkerThread(WorkerId worker_id,
                            std::size_t worker_count,
-                           std::chrono::nanoseconds tick_interval,
-                           std::uint32_t max_catch_up_ticks,
-                           std::size_t room_capacity,
                            MetricsRegistry& metrics)
     : worker_id_(worker_id)
-    , max_catch_up_ticks_(max_catch_up_ticks)
-    , sessions_(worker_id, worker_count)
-    , rooms_(worker_id, tick_interval, room_capacity)
+    , manager_(worker_id, worker_count)
     , metrics_(metrics)
 {
 }
@@ -42,7 +35,7 @@ WorkerThread::~WorkerThread()
     Stop();
 }
 
-void WorkerThread::SetIoInboxes(std::vector<IoInboxSender> io_inboxes)
+void WorkerThread::SetIoInboxes(std::vector<MailboxSender<IoMessage>> io_inboxes)
 {
     io_inboxes_ = std::move(io_inboxes);
 }
@@ -70,202 +63,146 @@ void WorkerThread::Run(std::stop_token stop_token)
         const auto now = Clock::now();
 
         for (auto& message : inbox_.Drain()) {
-            if (const auto* join = std::get_if<JoinMessage>(&message)) {
-                if (sessions_.FindByPlayer(join->player_id) != nullptr) {
-                    const auto io_index = static_cast<std::size_t>(join->connection.io_thread_id.value());
-                    (void)io_inboxes_[io_index].Push(WorkerToIoMessage{
-                        .connection = join->connection,
-                        .encoded_frame = std::make_shared<const std::string>(
-                            EncodeFrame(ServerMessageType::kError, "PLAYER_ALREADY_JOINED")),
-                        .activate_connection = false,
-                        .close_after_send = true,
+            if (const auto* player_id = std::get_if<PlayerId>(&message.payload)) {
+                if (manager_.FindSessionByPlayer(*player_id) != nullptr) {
+                    const auto io_index = static_cast<std::size_t>(message.connection.io_thread_id.value());
+                    io_inboxes_[io_index].Push(IoMessage{
+                        .connection = message.connection,
+                        .frame = EncodeFrame(ServerMessageType::kError, "PLAYER_ALREADY_JOINED"),
+                        .action = ConnectionAction::kClose,
                     });
                     continue;
                 }
 
-                auto& room = rooms_.AssignRoomForJoin();
-                const auto session_id = sessions_.Create(join->player_id, room.id(), join->connection);
-                rooms_.AddSession(room.id(), session_id);
-                room.EnqueueCommand(Room::Command{
-                    .type = Room::CommandType::kJoin,
-                    .session_id = session_id,
-                    .player_id = join->player_id,
-                    .input = {},
-                    .entered_at = now,
-                });
+                const auto session_id = manager_.Join(*player_id, message.connection, now);
                 Logger::Info("[Worker] join player={} session={} room={}",
-                             join->player_id.value(), session_id.value(), room.id().value());
+                             player_id->value(),
+                             session_id.value(),
+                             manager_.RoomFor(session_id).id().value());
                 continue;
             }
 
-            if (const auto* reconnect = std::get_if<ReconnectMessage>(&message)) {
-                auto* session = sessions_.Find(reconnect->session_id);
+            if (const auto* session_id = std::get_if<SessionId>(&message.payload)) {
+                auto* session = manager_.FindSession(*session_id);
                 if (session == nullptr || session->state != SessionState::kActive) {
-                    const auto io_index = static_cast<std::size_t>(reconnect->connection.io_thread_id.value());
-                    (void)io_inboxes_[io_index].Push(WorkerToIoMessage{
-                        .connection = reconnect->connection,
-                        .encoded_frame = std::make_shared<const std::string>(
-                            EncodeFrame(ServerMessageType::kError, "SESSION_NOT_FOUND")),
-                        .activate_connection = false,
-                        .close_after_send = true,
+                    const auto io_index = static_cast<std::size_t>(message.connection.io_thread_id.value());
+                    io_inboxes_[io_index].Push(IoMessage{
+                        .connection = message.connection,
+                        .frame = EncodeFrame(ServerMessageType::kError, "SESSION_NOT_FOUND"),
+                        .action = ConnectionAction::kClose,
                     });
                     continue;
                 }
 
-                auto& room = *rooms_.FindRoom(session->room_id);
+                auto& room = manager_.RoomFor(*session_id);
                 const auto update = room.BuildSnapshot(session->player_id, true, false);
-                const auto old_connection = session->connection;
-                (void)sessions_.Bind(reconnect->session_id, reconnect->connection);
+                const auto food_baseline = room.BuildFoodSnapshotBaseline();
+                const auto old_connection = manager_.Bind(*session, message.connection);
 
                 if (old_connection) {
                     const auto io_index = static_cast<std::size_t>(old_connection->io_thread_id.value());
-                    (void)io_inboxes_[io_index].Push(WorkerToIoMessage{
+                    io_inboxes_[io_index].Push(IoMessage{
                         .connection = *old_connection,
-                        .encoded_frame = nullptr,
-                        .activate_connection = false,
-                        .close_after_send = true,
+                        .frame = {},
+                        .action = ConnectionAction::kClose,
                     });
                 }
 
-                const auto food_baseline = room.BuildFoodSnapshotBaseline();
-                const auto io_index = static_cast<std::size_t>(reconnect->connection.io_thread_id.value());
-                (void)io_inboxes_[io_index].Push(WorkerToIoMessage{
-                    .connection = reconnect->connection,
-                    .encoded_frame = std::make_shared<const std::string>(EncodeFrame(
-                        ServerMessageType::kReconnectOk,
-                        EncodeSessionPayload(
-                            reconnect->session_id,
-                            EncodeSnapshotPayload(*update, food_baseline)))),
-                    .activate_connection = true,
-                    .close_after_send = false,
+                const auto io_index = static_cast<std::size_t>(message.connection.io_thread_id.value());
+                io_inboxes_[io_index].Push(IoMessage{
+                    .connection = message.connection,
+                    .frame = EncodeFrame(
+                        ServerMessageType::kFullSnapshot,
+                        EncodeFullSnapshotPayload(
+                            *session_id,
+                            EncodeSnapshotPayload(*update, food_baseline))),
+                    .action = ConnectionAction::kActivate,
                 });
                 Logger::Info("[Worker] reconnect player={} session={} room={}",
-                             session->player_id.value(), reconnect->session_id.value(), session->room_id.value());
+                             session->player_id.value(),
+                             session_id->value(),
+                             room.id().value());
                 continue;
             }
 
-            if (const auto* input = std::get_if<InputMessage>(&message)) {
-                const auto session_id = sessions_.FindIdByConnection(input->connection);
-                if (!session_id) {
-                    continue;
-                }
-
-                const auto& session = *sessions_.Find(*session_id);
-                rooms_.FindRoom(session.room_id)->EnqueueCommand(Room::Command{
-                    .type = Room::CommandType::kPlayerInput,
-                    .session_id = *session_id,
-                    .player_id = session.player_id,
-                    .input = input->input,
-                    .entered_at = now,
-                });
+            if (const auto* input = std::get_if<PlayerInput>(&message.payload)) {
+                manager_.EnqueueInput(message.connection, *input, now);
                 continue;
             }
 
-            const auto& connection = std::get<ConnectionMessage>(message);
-            const auto session_id = sessions_.FindIdByConnection(connection.connection);
-            if (!session_id) {
+            const auto event = std::get<ConnectionEvent>(message.payload);
+            auto* session = manager_.FindSessionByConnection(message.connection);
+            if (session == nullptr) {
                 continue;
             }
-
-            auto& session = *sessions_.Find(*session_id);
-            if (connection.action == ConnectionAction::kLeave || session.state == SessionState::kJoining) {
-                const auto removed = sessions_.Remove(*session_id);
-                rooms_.RemoveSession(removed.room_id, *session_id);
-                rooms_.FindRoom(removed.room_id)->EnqueueCommand(Room::Command{
-                    .type = Room::CommandType::kLeave,
-                    .session_id = *session_id,
-                    .player_id = removed.player_id,
-                    .input = {},
-                    .entered_at = now,
-                });
-                Logger::Info("[Worker] leave player={} session={} room={}",
-                             removed.player_id.value(), session_id->value(), removed.room_id.value());
-                continue;
+            const auto session_id = session->id;
+            const auto player_id = session->player_id;
+            if (event == ConnectionEvent::kLeave) {
+                manager_.Leave(session_id, now);
+                Logger::Info("[Worker] leave player={} session={}", player_id.value(), session_id.value());
+            } else {
+                manager_.Disconnect(session_id, now);
+                Logger::Info("[Worker] disconnected session={} player={}", session_id.value(), player_id.value());
             }
-
-            rooms_.FindRoom(session.room_id)->RemoveSnapshotObserver(session.player_id);
-            sessions_.Unbind(connection.connection);
-            Logger::Info("[Worker] disconnected session={} player={}",
-                         session_id->value(), session.player_id.value());
         }
 
-        auto room_ticked = false;
-        rooms_.TickDueRooms(
+        const auto room_ticked = manager_.TickDueRooms(
             now,
-            max_catch_up_ticks_,
-            [this, &room_ticked](Room& room,
-                                 const Room::TickResult& result,
-                                 Clock::time_point scheduled_tick_time) {
-                room_ticked = true;
-                const auto room_id = room.id();
-                auto joined_sessions = std::vector<SessionId>{};
-                joined_sessions.reserve(result.events.size());
+            [this](Room& room,
+                   std::span<const Session> sessions,
+                   const Room::TickResult& result,
+                   Clock::time_point scheduled_tick_time) {
+                auto messages_by_io = std::vector<std::vector<IoMessage>>(io_inboxes_.size());
+                auto food_baseline = std::optional<std::vector<FoodSnapshotUpdate>>{};
 
-                for (const auto& event : result.events) {
-                    if (event.type == Room::EventType::kJoinAccepted) {
-                        if (sessions_.Find(event.session_id) != nullptr) {
-                            sessions_.Activate(event.session_id);
-                            joined_sessions.push_back(event.session_id);
-                        }
-                    } else {
-                        rooms_.HandleRoomAfterLeave(room_id);
+                for (const auto& session : sessions) {
+                    if (!session.connection || session.state != SessionState::kActive) {
+                        continue;
+                    }
+
+                    const auto joined = std::find(
+                        result.joined_players.begin(),
+                        result.joined_players.end(),
+                        session.player_id) != result.joined_players.end();
+                    const auto update = room.BuildSnapshot(
+                        session.player_id,
+                        joined,
+                        !result.food_updates.empty());
+                    if (!update) {
+                        continue;
+                    }
+
+                    if (joined && !food_baseline) {
+                        food_baseline = room.BuildFoodSnapshotBaseline();
+                    }
+                    const auto& food_updates = joined ? *food_baseline : result.food_updates;
+                    auto payload = EncodeSnapshotPayload(*update, food_updates);
+                    if (joined) {
+                        payload = EncodeFullSnapshotPayload(session.id, payload);
+                    }
+
+                    auto outgoing = IoMessage{
+                        .connection = *session.connection,
+                        .frame = EncodeFrame(
+                            joined ? ServerMessageType::kFullSnapshot : ServerMessageType::kDeltaSnapshot,
+                            payload),
+                        .action = result.match_ended
+                            ? ConnectionAction::kClose
+                            : (joined ? ConnectionAction::kActivate : ConnectionAction::kNone),
+                    };
+                    const auto io_index = static_cast<std::size_t>(outgoing.connection.io_thread_id.value());
+                    messages_by_io[io_index].push_back(std::move(outgoing));
+                }
+
+                for (std::size_t io_index = 0; io_index < messages_by_io.size(); ++io_index) {
+                    if (!messages_by_io[io_index].empty()) {
+                        io_inboxes_[io_index].PushBatch(std::move(messages_by_io[io_index]));
                     }
                 }
 
-                if (auto* live_room = rooms_.FindRoom(room_id)) {
-                    auto messages_by_io = std::vector<std::vector<WorkerToIoMessage>>(io_inboxes_.size());
-                    auto food_baseline = std::optional<std::vector<FoodSnapshotUpdate>>{};
-
-                    for (const auto session_id : rooms_.Sessions(room_id)) {
-                        const auto& session = *sessions_.Find(session_id);
-                        if (!session.connection || session.state != SessionState::kActive) {
-                            continue;
-                        }
-
-                        const auto joined = std::find(joined_sessions.begin(), joined_sessions.end(), session_id)
-                            != joined_sessions.end();
-                        const auto update = live_room->BuildSnapshot(
-                            session.player_id,
-                            joined,
-                            !result.food_updates.empty());
-                        if (!update) {
-                            continue;
-                        }
-
-                        if (joined && !food_baseline) {
-                            food_baseline = live_room->BuildFoodSnapshotBaseline();
-                        }
-                        const auto& food_updates = joined ? *food_baseline : result.food_updates;
-                        const auto payload = EncodeSnapshotPayload(*update, food_updates);
-                        const auto frame_payload = joined
-                            ? EncodeSessionPayload(session_id, payload)
-                            : payload;
-                        auto outgoing = WorkerToIoMessage{
-                            .connection = *session.connection,
-                            .encoded_frame = std::make_shared<const std::string>(EncodeFrame(
-                                joined ? ServerMessageType::kJoinOk : ServerMessageType::kSnapshot,
-                                frame_payload)),
-                            .activate_connection = joined,
-                            .close_after_send = result.match_ended,
-                        };
-                        const auto io_index = static_cast<std::size_t>(outgoing.connection.io_thread_id.value());
-                        messages_by_io[io_index].push_back(std::move(outgoing));
-                    }
-
-                    for (std::size_t io_index = 0; io_index < messages_by_io.size(); ++io_index) {
-                        if (!messages_by_io[io_index].empty()) {
-                            (void)io_inboxes_[io_index].PushBatch(std::move(messages_by_io[io_index]));
-                        }
-                    }
-
-                    if (result.match_ended) {
-                        auto session_ids = rooms_.RemoveRoom(room_id);
-                        for (const auto session_id : session_ids) {
-                            (void)sessions_.Remove(session_id);
-                        }
-                        Logger::Info("[Worker] match ended worker={} room={} sessions={}",
-                                     worker_id_.value(), room_id.value(), session_ids.size());
-                    }
+                if (result.match_ended) {
+                    Logger::Info("[Worker] match ended worker={} room={} sessions={}",
+                                 worker_id_.value(), room.id().value(), sessions.size());
                 }
 
                 const auto response_time = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -276,7 +213,7 @@ void WorkerThread::Run(std::stop_token stop_token)
             });
 
         if (room_ticked) {
-            const auto room_metrics = rooms_.CollectMetrics();
+            const auto room_metrics = manager_.CollectMetrics();
             metrics_.SetWorkerRoomMetrics(
                 worker_id_,
                 room_metrics.static_entities,
@@ -285,7 +222,7 @@ void WorkerThread::Run(std::stop_token stop_token)
                 room_metrics.visible_other_player_balls);
         }
 
-        const auto next_wake_time = rooms_.NextWakeTime(now + std::chrono::milliseconds{1});
+        const auto next_wake_time = manager_.NextWakeTime(now + std::chrono::milliseconds{1});
         std::this_thread::sleep_until(next_wake_time);
     }
 
